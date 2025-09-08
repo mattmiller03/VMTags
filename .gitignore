@@ -36,3 +36,7 @@ desktop.ini
 
 # Ignore PowerShell profile backups
 *_profile.ps1.bak
+/.vs/VMTags
+/.vs/ProjectSettings.json
+/.vs/slnx.sqlite
+/.vs/VSWorkspaceState.json
