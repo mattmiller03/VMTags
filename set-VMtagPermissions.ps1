@@ -76,7 +76,28 @@ Param(
     
     [Parameter(Mandatory = $false, HelpMessage = "Batch size for VM processing (default: 50)")]
     [ValidateRange(10, 500)]
-    [int]$BatchSize = 50
+    [int]$BatchSize = 50,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Enable parallel processing of VM operations")]
+    [switch]$EnableParallelProcessing,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Batch processing strategy (RoundRobin, PowerStateBalanced, ComplexityBalanced)")]
+    [ValidateSet('RoundRobin', 'PowerStateBalanced', 'ComplexityBalanced')]
+    [string]$BatchStrategy = 'RoundRobin',
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Enable real-time progress tracking")]
+    [switch]$EnableProgressTracking,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Enable robust error handling with retry logic")]
+    [switch]$EnableErrorHandling,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Delay in seconds between retry attempts (default: 2)")]
+    [ValidateRange(1, 30)]
+    [int]$RetryDelaySeconds = 2,
+    
+    [Parameter(Mandatory = $false, HelpMessage = "Maximum number of retry attempts per operation (default: 3)")]
+    [ValidateRange(1, 10)]
+    [int]$MaxOperationRetries = 3
 )
 
 #region A) Credential Loading and Configs
@@ -308,6 +329,1331 @@ function Save-ExecutionLog {
     }
 }
 
+#region Thread-Safe Logging for Parallel Operations
+# Initialize thread-safe logging system
+$script:LogMutex = $null
+$script:ProgressData = @{}
+$script:ParallelLogQueue = [System.Collections.Concurrent.ConcurrentQueue[PSObject]]::new()
+
+function Initialize-ThreadSafeLogging {
+    [CmdletBinding()]
+    Param()
+    
+    try {
+        # Create a named mutex for cross-thread synchronization
+        $mutexName = "VMTags_Logging_$($script:ExecutionTimestamp)"
+        $script:LogMutex = [System.Threading.Mutex]::new($false, $mutexName)
+        
+        # Initialize progress tracking
+        $script:ProgressData = [hashtable]::Synchronized(@{
+            TotalVMs = 0
+            ProcessedVMs = 0
+            SuccessfulVMs = 0
+            FailedVMs = 0
+            SkippedVMs = 0
+            StartTime = Get-Date
+            BatchesCompleted = 0
+            CurrentBatch = 0
+            ThreadMetrics = @{}
+        })
+        
+        Write-Log "Thread-safe logging system initialized with mutex: $mutexName" "DEBUG"
+        return $true
+    }
+    catch {
+        Write-Log "Failed to initialize thread-safe logging: $_" "ERROR"
+        return $false
+    }
+}
+
+function Write-ThreadSafeLog {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message,
+        [Parameter(Mandatory = $false)]
+        [ValidateSet("INFO", "WARN", "ERROR", "DEBUG")]
+        [string]$Level = "INFO",
+        [Parameter(Mandatory = $false)]
+        [int]$ThreadId = 0,
+        [Parameter(Mandatory = $false)]
+        [string]$VMName = ""
+    )
+    
+    $logEntry = [PSCustomObject]@{
+        Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+        Level = $Level
+        ThreadId = $ThreadId
+        VMName = $VMName
+        Message = $Message
+        ProcessId = $PID
+    }
+    
+    # Queue the log entry for thread-safe processing
+    $script:ParallelLogQueue.Enqueue($logEntry)
+    
+    # Also write to console immediately for real-time feedback
+    $consoleColor = switch ($Level) {
+        "ERROR" { "Red" }
+        "WARN" { "Yellow" }
+        "DEBUG" { "Gray" }
+        default { "White" }
+    }
+    
+    $threadPrefix = if ($ThreadId -gt 0) { "[T$ThreadId]" } else { "" }
+    $vmPrefix = if ($VMName) { "[$VMName]" } else { "" }
+    
+    Write-Host "$($logEntry.Timestamp) [$Level] $threadPrefix$vmPrefix $Message" -ForegroundColor $consoleColor
+}
+
+function Update-ProgressData {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Updates
+    )
+    
+    try {
+        if ($script:LogMutex.WaitOne(1000)) {
+            try {
+                foreach ($key in $Updates.Keys) {
+                    $script:ProgressData[$key] = $Updates[$key]
+                }
+                
+                # Calculate derived metrics
+                if ($script:ProgressData.TotalVMs -gt 0) {
+                    $script:ProgressData.PercentComplete = [math]::Round(($script:ProgressData.ProcessedVMs / $script:ProgressData.TotalVMs) * 100, 2)
+                }
+                
+                $elapsed = (Get-Date) - $script:ProgressData.StartTime
+                $script:ProgressData.ElapsedMinutes = [math]::Round($elapsed.TotalMinutes, 2)
+                
+                if ($script:ProgressData.ProcessedVMs -gt 0) {
+                    $avgTimePerVM = $elapsed.TotalSeconds / $script:ProgressData.ProcessedVMs
+                    $remainingVMs = $script:ProgressData.TotalVMs - $script:ProgressData.ProcessedVMs
+                    $estimatedRemainingSeconds = $avgTimePerVM * $remainingVMs
+                    $script:ProgressData.EstimatedRemainingMinutes = [math]::Round($estimatedRemainingSeconds / 60, 2)
+                    $script:ProgressData.VMsPerMinute = [math]::Round($script:ProgressData.ProcessedVMs / $elapsed.TotalMinutes, 2)
+                }
+            }
+            finally {
+                $script:LogMutex.ReleaseMutex()
+            }
+        }
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to update progress data: $_" "ERROR"
+    }
+}
+
+function Get-ProgressSummary {
+    [CmdletBinding()]
+    Param()
+    
+    try {
+        if ($script:LogMutex.WaitOne(1000)) {
+            try {
+                return $script:ProgressData.Clone()
+            }
+            finally {
+                $script:LogMutex.ReleaseMutex()
+            }
+        }
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to get progress summary: $_" "ERROR"
+        return @{}
+    }
+}
+
+function Flush-ParallelLogs {
+    [CmdletBinding()]
+    Param()
+    
+    try {
+        $logEntries = @()
+        $logEntry = $null
+        
+        # Dequeue all pending log entries
+        while ($script:ParallelLogQueue.TryDequeue([ref]$logEntry)) {
+            $logEntries += $logEntry
+        }
+        
+        if ($logEntries.Count -gt 0) {
+            # Write to file in batch for better performance
+            if ($script:LogMutex.WaitOne(2000)) {
+                try {
+                    foreach ($entry in $logEntries) {
+                        $logLine = "$($entry.Timestamp) [$($entry.Level)] [T$($entry.ThreadId)] $($entry.Message)"
+                        if ($entry.VMName) {
+                            $logLine = "$($entry.Timestamp) [$($entry.Level)] [T$($entry.ThreadId)] [$($entry.VMName)] $($entry.Message)"
+                        }
+                        
+                        # Add to script output log for CSV export
+                        $script:outputLog += [PSCustomObject]@{
+                            Timestamp = $entry.Timestamp
+                            Level = $entry.Level
+                            ThreadId = $entry.ThreadId
+                            VMName = $entry.VMName
+                            Message = $entry.Message
+                        }
+                        
+                        # Write to log file
+                        try {
+                            Add-Content -Path $script:LogFilePath -Value $logLine -ErrorAction SilentlyContinue
+                        }
+                        catch {
+                            # Suppress file write errors to avoid spam
+                        }
+                    }
+                }
+                finally {
+                    $script:LogMutex.ReleaseMutex()
+                }
+            }
+            
+            Write-ThreadSafeLog "Flushed $($logEntries.Count) parallel log entries" "DEBUG"
+        }
+    }
+    catch {
+        Write-Log "Failed to flush parallel logs: $_" "ERROR"
+    }
+}
+
+function Cleanup-ThreadSafeLogging {
+    [CmdletBinding()]
+    Param()
+    
+    try {
+        # Flush any remaining logs
+        Flush-ParallelLogs
+        
+        # Dispose of mutex
+        if ($script:LogMutex) {
+            $script:LogMutex.Dispose()
+            $script:LogMutex = $null
+        }
+        
+        Write-Log "Thread-safe logging system cleaned up" "DEBUG"
+    }
+    catch {
+        Write-Log "Error cleaning up thread-safe logging: $_" "ERROR"
+    }
+}
+#endregion
+
+#region Batch Processing Logic for Intelligent VM Batching
+function Split-VMsIntoBatches {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [array]$VMs,
+        [Parameter(Mandatory = $false)]
+        [int]$BatchSize = 50,
+        [Parameter(Mandatory = $false)]
+        [string]$BatchingStrategy = "RoundRobin"
+    )
+    
+    try {
+        Write-ThreadSafeLog "Splitting $($VMs.Count) VMs into batches of size $BatchSize using $BatchingStrategy strategy" "INFO"
+        
+        $batches = @()
+        $batchIndex = 0
+        
+        switch ($BatchingStrategy) {
+            "RoundRobin" {
+                # Default strategy - simple round-robin distribution
+                for ($i = 0; $i -lt $VMs.Count; $i += $BatchSize) {
+                    $endIndex = [math]::Min($i + $BatchSize - 1, $VMs.Count - 1)
+                    $batch = $VMs[$i..$endIndex]
+                    
+                    $batchObject = [PSCustomObject]@{
+                        BatchId = $batchIndex++
+                        VMs = $batch
+                        Count = $batch.Count
+                        EstimatedComplexity = $batch.Count # Simple complexity based on count
+                        PowerStateDistribution = ($batch | Group-Object PowerState | ForEach-Object { "$($_.Name):$($_.Count)" }) -join ","
+                    }
+                    
+                    $batches += $batchObject
+                    Write-ThreadSafeLog "Created batch $($batchObject.BatchId) with $($batchObject.Count) VMs (PowerStates: $($batchObject.PowerStateDistribution))" "DEBUG"
+                }
+            }
+            
+            "PowerStateBalanced" {
+                # Advanced strategy - balance powered on vs off VMs across batches
+                $poweredOnVMs = $VMs | Where-Object { $_.PowerState -eq "PoweredOn" }
+                $poweredOffVMs = $VMs | Where-Object { $_.PowerState -ne "PoweredOn" }
+                
+                Write-ThreadSafeLog "PowerStateBalanced: $($poweredOnVMs.Count) powered on, $($poweredOffVMs.Count) powered off VMs" "DEBUG"
+                
+                $totalBatches = [math]::Ceiling($VMs.Count / $BatchSize)
+                $onVMsPerBatch = [math]::Ceiling($poweredOnVMs.Count / $totalBatches)
+                $offVMsPerBatch = [math]::Ceiling($poweredOffVMs.Count / $totalBatches)
+                
+                for ($batchNum = 0; $batchNum -lt $totalBatches; $batchNum++) {
+                    $batchVMs = @()
+                    
+                    # Add powered on VMs to this batch
+                    $onStartIndex = $batchNum * $onVMsPerBatch
+                    $onEndIndex = [math]::Min($onStartIndex + $onVMsPerBatch - 1, $poweredOnVMs.Count - 1)
+                    if ($onStartIndex -lt $poweredOnVMs.Count) {
+                        $batchVMs += $poweredOnVMs[$onStartIndex..$onEndIndex]
+                    }
+                    
+                    # Add powered off VMs to this batch
+                    $offStartIndex = $batchNum * $offVMsPerBatch
+                    $offEndIndex = [math]::Min($offStartIndex + $offVMsPerBatch - 1, $poweredOffVMs.Count - 1)
+                    if ($offStartIndex -lt $poweredOffVMs.Count) {
+                        $batchVMs += $poweredOffVMs[$offStartIndex..$offEndIndex]
+                    }
+                    
+                    if ($batchVMs.Count -gt 0) {
+                        $batchObject = [PSCustomObject]@{
+                            BatchId = $batchIndex++
+                            VMs = $batchVMs
+                            Count = $batchVMs.Count
+                            EstimatedComplexity = ($batchVMs | Where-Object { $_.PowerState -eq "PoweredOn" }).Count * 1.5 + ($batchVMs | Where-Object { $_.PowerState -ne "PoweredOn" }).Count
+                            PowerStateDistribution = ($batchVMs | Group-Object PowerState | ForEach-Object { "$($_.Name):$($_.Count)" }) -join ","
+                        }
+                        
+                        $batches += $batchObject
+                        Write-ThreadSafeLog "Created balanced batch $($batchObject.BatchId) with $($batchObject.Count) VMs (Complexity: $($batchObject.EstimatedComplexity))" "DEBUG"
+                    }
+                }
+            }
+            
+            "ComplexityBalanced" {
+                # Most advanced - balance based on VM complexity (powered state, OS type, existing tags)
+                $vmsWithComplexity = $VMs | ForEach-Object {
+                    $complexity = 1 # Base complexity
+                    
+                    # Powered on VMs are more complex (VMware Tools data available)
+                    if ($_.PowerState -eq "PoweredOn") { $complexity += 0.5 }
+                    
+                    # VMs with existing tags might need more processing
+                    try {
+                        $existingTags = Get-TagAssignment -Entity $_ -ErrorAction SilentlyContinue
+                        if ($existingTags) { $complexity += ($existingTags.Count * 0.1) }
+                    }
+                    catch {
+                        # Ignore tag assignment errors during batching
+                    }
+                    
+                    [PSCustomObject]@{
+                        VM = $_
+                        Complexity = $complexity
+                    }
+                }
+                
+                # Sort by complexity and distribute evenly
+                $sortedVMs = $vmsWithComplexity | Sort-Object Complexity
+                $totalBatches = [math]::Ceiling($VMs.Count / $BatchSize)
+                
+                for ($batchNum = 0; $batchNum -lt $totalBatches; $batchNum++) {
+                    $batchVMs = @()
+                    $batchComplexity = 0
+                    
+                    # Distribute VMs to balance complexity across batches
+                    for ($vmIndex = $batchNum; $vmIndex -lt $sortedVMs.Count; $vmIndex += $totalBatches) {
+                        if ($batchVMs.Count -lt $BatchSize) {
+                            $batchVMs += $sortedVMs[$vmIndex].VM
+                            $batchComplexity += $sortedVMs[$vmIndex].Complexity
+                        }
+                    }
+                    
+                    if ($batchVMs.Count -gt 0) {
+                        $batchObject = [PSCustomObject]@{
+                            BatchId = $batchIndex++
+                            VMs = $batchVMs
+                            Count = $batchVMs.Count
+                            EstimatedComplexity = [math]::Round($batchComplexity, 2)
+                            PowerStateDistribution = ($batchVMs | Group-Object PowerState | ForEach-Object { "$($_.Name):$($_.Count)" }) -join ","
+                        }
+                        
+                        $batches += $batchObject
+                        Write-ThreadSafeLog "Created complexity-balanced batch $($batchObject.BatchId) with $($batchObject.Count) VMs (Complexity: $($batchObject.EstimatedComplexity))" "DEBUG"
+                    }
+                }
+            }
+        }
+        
+        Write-ThreadSafeLog "Successfully created $($batches.Count) batches with total complexity: $([math]::Round(($batches | Measure-Object EstimatedComplexity -Sum).Sum, 2))" "INFO"
+        return $batches
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to split VMs into batches: $_" "ERROR"
+        throw
+    }
+}
+
+function Get-OptimalBatchSettings {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [int]$TotalVMs,
+        [Parameter(Mandatory = $true)]
+        [int]$MaxParallelThreads,
+        [Parameter(Mandatory = $false)]
+        [int]$RequestedBatchSize = 50
+    )
+    
+    try {
+        # Calculate optimal settings based on VM count and system resources
+        $systemInfo = @{
+            LogicalProcessors = (Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors
+            TotalMemoryGB = [math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory / 1GB, 2)
+        }
+        
+        # Adjust batch size based on total VMs and thread count
+        $optimalBatchSize = $RequestedBatchSize
+        
+        if ($TotalVMs -lt 100) {
+            # Small inventories - smaller batches for better granularity
+            $optimalBatchSize = [math]::Min($RequestedBatchSize, 25)
+        }
+        elseif ($TotalVMs -gt 1000) {
+            # Large inventories - larger batches for efficiency
+            $optimalBatchSize = [math]::Max($RequestedBatchSize, 75)
+        }
+        
+        # Ensure we don't create more batches than we can process efficiently
+        $maxRecommendedBatches = $MaxParallelThreads * 4
+        if (([math]::Ceiling($TotalVMs / $optimalBatchSize)) -gt $maxRecommendedBatches) {
+            $optimalBatchSize = [math]::Ceiling($TotalVMs / $maxRecommendedBatches)
+        }
+        
+        # Choose batching strategy based on inventory size
+        $recommendedStrategy = if ($TotalVMs -lt 200) {
+            "RoundRobin"
+        }
+        elseif ($TotalVMs -lt 500) {
+            "PowerStateBalanced"
+        }
+        else {
+            "ComplexityBalanced"
+        }
+        
+        $settings = [PSCustomObject]@{
+            OptimalBatchSize = $optimalBatchSize
+            RecommendedStrategy = $recommendedStrategy
+            EstimatedBatches = [math]::Ceiling($TotalVMs / $optimalBatchSize)
+            SystemInfo = $systemInfo
+            Reasoning = @{
+                BatchSizeAdjustment = "Adjusted from $RequestedBatchSize to $optimalBatchSize based on inventory size"
+                StrategySelection = "Selected $recommendedStrategy strategy for $TotalVMs VMs"
+                SystemConsideration = "$($systemInfo.LogicalProcessors) logical processors, $($systemInfo.TotalMemoryGB)GB RAM detected"
+            }
+        }
+        
+        Write-ThreadSafeLog "Optimal batch settings: $($settings.OptimalBatchSize) batch size, $($settings.RecommendedStrategy) strategy, $($settings.EstimatedBatches) estimated batches" "INFO"
+        return $settings
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to calculate optimal batch settings: $_" "ERROR"
+        # Return safe defaults
+        return [PSCustomObject]@{
+            OptimalBatchSize = 50
+            RecommendedStrategy = "RoundRobin"
+            EstimatedBatches = [math]::Ceiling($TotalVMs / 50)
+        }
+    }
+}
+
+function Test-BatchPerformance {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [array]$Batches,
+        [Parameter(Mandatory = $false)]
+        [switch]$DetailedAnalysis
+    )
+    
+    try {
+        $analysis = [PSCustomObject]@{
+            TotalBatches = $Batches.Count
+            TotalVMs = ($Batches | Measure-Object -Property Count -Sum).Sum
+            AverageBatchSize = [math]::Round(($Batches | Measure-Object -Property Count -Average).Average, 2)
+            MinBatchSize = ($Batches | Measure-Object -Property Count -Minimum).Minimum
+            MaxBatchSize = ($Batches | Measure-Object -Property Count -Maximum).Maximum
+            TotalComplexity = [math]::Round(($Batches | Measure-Object -Property EstimatedComplexity -Sum).Sum, 2)
+            AverageComplexity = [math]::Round(($Batches | Measure-Object -Property EstimatedComplexity -Average).Average, 2)
+            ComplexityBalance = @{}
+        }
+        
+        # Calculate complexity balance (variance from average)
+        $complexityVariance = 0
+        foreach ($batch in $Batches) {
+            $complexityVariance += [math]::Pow($batch.EstimatedComplexity - $analysis.AverageComplexity, 2)
+        }
+        $analysis.ComplexityBalance.Variance = [math]::Round($complexityVariance / $Batches.Count, 2)
+        $analysis.ComplexityBalance.StandardDeviation = [math]::Round([math]::Sqrt($analysis.ComplexityBalance.Variance), 2)
+        $analysis.ComplexityBalance.BalanceScore = [math]::Max(0, 100 - ($analysis.ComplexityBalance.StandardDeviation * 10))
+        
+        if ($DetailedAnalysis) {
+            $analysis | Add-Member -NotePropertyName "BatchDetails" -NotePropertyValue ($Batches | Select-Object BatchId, Count, EstimatedComplexity, PowerStateDistribution)
+        }
+        
+        Write-ThreadSafeLog "Batch analysis: $($analysis.TotalBatches) batches, avg size $($analysis.AverageBatchSize), balance score $([math]::Round($analysis.ComplexityBalance.BalanceScore, 1))%" "INFO"
+        return $analysis
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to analyze batch performance: $_" "ERROR"
+        return $null
+    }
+}
+#endregion
+
+#region Progress Tracking System with Real-Time Performance Metrics
+function Start-ProgressTracking {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [int]$TotalVMs,
+        [Parameter(Mandatory = $true)]
+        [int]$TotalBatches,
+        [Parameter(Mandatory = $false)]
+        [int]$MaxParallelThreads = 4
+    )
+    
+    try {
+        # Initialize comprehensive progress tracking
+        Update-ProgressData -Updates @{
+            TotalVMs = $TotalVMs
+            TotalBatches = $TotalBatches
+            MaxParallelThreads = $MaxParallelThreads
+            ProcessedVMs = 0
+            SuccessfulVMs = 0
+            FailedVMs = 0
+            SkippedVMs = 0
+            TagsAssigned = 0
+            PermissionsCreated = 0
+            PermissionsSkipped = 0
+            PermissionsFailed = 0
+            BatchesCompleted = 0
+            CurrentBatch = 0
+            StartTime = Get-Date
+            LastUpdateTime = Get-Date
+            PercentComplete = 0
+            ElapsedMinutes = 0
+            EstimatedRemainingMinutes = 0
+            VMsPerMinute = 0
+            ThreadMetrics = @{}
+        }
+        
+        # Initialize thread-specific metrics
+        for ($i = 1; $i -le $MaxParallelThreads; $i++) {
+            $script:ProgressData.ThreadMetrics["Thread$i"] = @{
+                VMsProcessed = 0
+                CurrentVM = ""
+                Status = "Idle"
+                LastActivity = Get-Date
+                Errors = 0
+                BatchesProcessed = 0
+            }
+        }
+        
+        Write-ThreadSafeLog "Progress tracking initialized for $TotalVMs VMs across $TotalBatches batches with $MaxParallelThreads threads" "INFO"
+        
+        # Start background progress reporter
+        Start-ProgressReporter
+        
+        return $true
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to start progress tracking: $_" "ERROR"
+        return $false
+    }
+}
+
+function Update-ThreadStatus {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [int]$ThreadId,
+        [Parameter(Mandatory = $true)]
+        [string]$Status,
+        [Parameter(Mandatory = $false)]
+        [string]$CurrentVM = "",
+        [Parameter(Mandatory = $false)]
+        [string]$CurrentAction = ""
+    )
+    
+    try {
+        if ($script:LogMutex.WaitOne(500)) {
+            try {
+                $threadKey = "Thread$ThreadId"
+                if ($script:ProgressData.ThreadMetrics.ContainsKey($threadKey)) {
+                    $script:ProgressData.ThreadMetrics[$threadKey].Status = $Status
+                    $script:ProgressData.ThreadMetrics[$threadKey].CurrentVM = $CurrentVM
+                    $script:ProgressData.ThreadMetrics[$threadKey].LastActivity = Get-Date
+                    
+                    if ($CurrentAction) {
+                        $script:ProgressData.ThreadMetrics[$threadKey].CurrentAction = $CurrentAction
+                    }
+                    
+                    # Update counts based on status
+                    switch ($Status) {
+                        "Processing" { 
+                            $script:ProgressData.ThreadMetrics[$threadKey].VMsProcessed++
+                        }
+                        "Error" { 
+                            $script:ProgressData.ThreadMetrics[$threadKey].Errors++
+                        }
+                        "BatchCompleted" {
+                            $script:ProgressData.ThreadMetrics[$threadKey].BatchesProcessed++
+                        }
+                    }
+                }
+                
+                $script:ProgressData.LastUpdateTime = Get-Date
+            }
+            finally {
+                $script:LogMutex.ReleaseMutex()
+            }
+        }
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to update thread $ThreadId status: $_" "ERROR" -ThreadId $ThreadId
+    }
+}
+
+function Update-VMProgress {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $true)]
+        [string]$VMName,
+        [Parameter(Mandatory = $true)]
+        [string]$Result, # Success, Failed, Skipped
+        [Parameter(Mandatory = $false)]
+        [int]$ThreadId = 0,
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Metrics = @{}
+    )
+    
+    try {
+        $updates = @{
+            ProcessedVMs = $script:ProgressData.ProcessedVMs + 1
+            LastUpdateTime = Get-Date
+        }
+        
+        # Update result counters
+        switch ($Result) {
+            "Success" { 
+                $updates.SuccessfulVMs = $script:ProgressData.SuccessfulVMs + 1
+            }
+            "Failed" { 
+                $updates.FailedVMs = $script:ProgressData.FailedVMs + 1
+            }
+            "Skipped" { 
+                $updates.SkippedVMs = $script:ProgressData.SkippedVMs + 1
+            }
+        }
+        
+        # Update specific metrics if provided
+        foreach ($metric in $Metrics.Keys) {
+            if ($script:ProgressData.ContainsKey($metric)) {
+                $updates[$metric] = $script:ProgressData[$metric] + $Metrics[$metric]
+            }
+        }
+        
+        Update-ProgressData -Updates $updates
+        
+        Write-ThreadSafeLog "VM '$VMName' processed with result: $Result" "DEBUG" -ThreadId $ThreadId -VMName $VMName
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to update VM progress for '$VMName': $_" "ERROR" -ThreadId $ThreadId
+    }
+}
+
+function Start-ProgressReporter {
+    [CmdletBinding()]
+    Param()
+    
+    # Start a background job for periodic progress reporting
+    $script:ProgressReporterJob = Start-Job -ScriptBlock {
+        param($ProgressDataRef, $LogMutexName)
+        
+        # Import necessary functions (simplified for background job)
+        function Write-ProgressReport {
+            param($Progress)
+            
+            $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+            $line1 = "[$timestamp] === PROGRESS REPORT ==="
+            $line2 = "VMs: $($Progress.ProcessedVMs)/$($Progress.TotalVMs) ($($Progress.PercentComplete)% complete)"
+            $line3 = "Success: $($Progress.SuccessfulVMs), Failed: $($Progress.FailedVMs), Skipped: $($Progress.SkippedVMs)"
+            $line4 = "Batches: $($Progress.BatchesCompleted)/$($Progress.TotalBatches)"
+            $line5 = "Rate: $($Progress.VMsPerMinute) VMs/min, ETA: $($Progress.EstimatedRemainingMinutes) min"
+            $line6 = "Elapsed: $($Progress.ElapsedMinutes) min"
+            
+            Write-Host $line1 -ForegroundColor Cyan
+            Write-Host $line2 -ForegroundColor White
+            Write-Host $line3 -ForegroundColor Green
+            Write-Host $line4 -ForegroundColor Yellow
+            Write-Host $line5 -ForegroundColor Magenta
+            Write-Host $line6 -ForegroundColor Gray
+            Write-Host "========================================" -ForegroundColor Cyan
+        }
+        
+        try {
+            $mutex = [System.Threading.Mutex]::OpenExisting($LogMutexName)
+            
+            while ($true) {
+                Start-Sleep -Seconds 30  # Report every 30 seconds
+                
+                try {
+                    if ($mutex.WaitOne(1000)) {
+                        try {
+                            # Get current progress (simplified access)
+                            $currentProgress = $ProgressDataRef
+                            if ($currentProgress -and $currentProgress.TotalVMs -gt 0) {
+                                Write-ProgressReport -Progress $currentProgress
+                            }
+                        }
+                        finally {
+                            $mutex.ReleaseMutex()
+                        }
+                    }
+                }
+                catch {
+                    # Ignore errors in background reporting
+                }
+            }
+        }
+        catch {
+            # Background job failed to start - not critical
+        }
+    } -ArgumentList $script:ProgressData, "VMTags_Logging_$($script:ExecutionTimestamp)"
+}
+
+function Stop-ProgressReporter {
+    [CmdletBinding()]
+    Param()
+    
+    try {
+        if ($script:ProgressReporterJob) {
+            Stop-Job -Job $script:ProgressReporterJob -PassThru | Remove-Job
+            $script:ProgressReporterJob = $null
+            Write-ThreadSafeLog "Progress reporter stopped" "DEBUG"
+        }
+    }
+    catch {
+        Write-ThreadSafeLog "Error stopping progress reporter: $_" "ERROR"
+    }
+}
+
+function Get-DetailedProgressReport {
+    [CmdletBinding()]
+    Param(
+        [Parameter(Mandatory = $false)]
+        [switch]$IncludeThreadDetails,
+        [Parameter(Mandatory = $false)]
+        [switch]$IncludePerformanceMetrics
+    )
+    
+    try {
+        $progress = Get-ProgressSummary
+        if (-not $progress) { return $null }
+        
+        $report = [PSCustomObject]@{
+            Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss.fff"
+            Summary = @{
+                TotalVMs = $progress.TotalVMs
+                ProcessedVMs = $progress.ProcessedVMs
+                SuccessfulVMs = $progress.SuccessfulVMs
+                FailedVMs = $progress.FailedVMs
+                SkippedVMs = $progress.SkippedVMs
+                PercentComplete = $progress.PercentComplete
+            }
+            Timing = @{
+                ElapsedMinutes = $progress.ElapsedMinutes
+                EstimatedRemainingMinutes = $progress.EstimatedRemainingMinutes
+                VMsPerMinute = $progress.VMsPerMinute
+                StartTime = $progress.StartTime
+            }
+            Operations = @{
+                TagsAssigned = $progress.TagsAssigned
+                PermissionsCreated = $progress.PermissionsCreated
+                PermissionsSkipped = $progress.PermissionsSkipped
+                PermissionsFailed = $progress.PermissionsFailed
+            }
+            Batches = @{
+                Completed = $progress.BatchesCompleted
+                Total = $progress.TotalBatches
+                Current = $progress.CurrentBatch
+            }
+        }
+        
+        if ($IncludeThreadDetails) {
+            $report | Add-Member -NotePropertyName "ThreadDetails" -NotePropertyValue $progress.ThreadMetrics
+        }
+        
+        if ($IncludePerformanceMetrics) {
+            $successRate = if ($progress.ProcessedVMs -gt 0) { [math]::Round(($progress.SuccessfulVMs / $progress.ProcessedVMs) * 100, 2) } else { 0 }
+            $errorRate = if ($progress.ProcessedVMs -gt 0) { [math]::Round(($progress.FailedVMs / $progress.ProcessedVMs) * 100, 2) } else { 0 }
+            
+            $performanceMetrics = @{
+                SuccessRate = $successRate
+                ErrorRate = $errorRate
+                SkipRate = if ($progress.ProcessedVMs -gt 0) { [math]::Round(($progress.SkippedVMs / $progress.ProcessedVMs) * 100, 2) } else { 0 }
+                OverallEfficiency = [math]::Max(0, 100 - $errorRate)
+                AverageTimePerVM = if ($progress.ProcessedVMs -gt 0) { [math]::Round($progress.ElapsedMinutes * 60 / $progress.ProcessedVMs, 2) } else { 0 }
+            }
+            
+            $report | Add-Member -NotePropertyName "PerformanceMetrics" -NotePropertyValue $performanceMetrics
+        }
+        
+        return $report
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to generate detailed progress report: $_" "ERROR"
+        return $null
+    }
+}
+
+function Show-FinalProgressSummary {
+    [CmdletBinding()]
+    Param()
+    
+    try {
+        $finalReport = Get-DetailedProgressReport -IncludePerformanceMetrics
+        if (-not $finalReport) { return }
+        
+        Write-Host "`n" -ForegroundColor White
+        Write-Host "╔══════════════════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+        Write-Host "║                                   FINAL EXECUTION SUMMARY                               ║" -ForegroundColor Green  
+        Write-Host "╚══════════════════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+        Write-Host ""
+        
+        # VM Processing Summary
+        Write-Host "🎯 VM PROCESSING RESULTS:" -ForegroundColor Cyan
+        Write-Host "   Total VMs Processed: $($finalReport.Summary.ProcessedVMs) / $($finalReport.Summary.TotalVMs)" -ForegroundColor White
+        Write-Host "   ✅ Successful: $($finalReport.Summary.SuccessfulVMs) ($($finalReport.PerformanceMetrics.SuccessRate)%)" -ForegroundColor Green
+        Write-Host "   ❌ Failed: $($finalReport.Summary.FailedVMs) ($($finalReport.PerformanceMetrics.ErrorRate)%)" -ForegroundColor Red
+        Write-Host "   ⏭️  Skipped: $($finalReport.Summary.SkippedVMs) ($($finalReport.PerformanceMetrics.SkipRate)%)" -ForegroundColor Yellow
+        Write-Host ""
+        
+        # Performance Metrics
+        Write-Host "⚡ PERFORMANCE METRICS:" -ForegroundColor Cyan
+        Write-Host "   Total Runtime: $($finalReport.Timing.ElapsedMinutes) minutes" -ForegroundColor White
+        Write-Host "   Processing Rate: $($finalReport.Timing.VMsPerMinute) VMs per minute" -ForegroundColor White
+        Write-Host "   Average Time per VM: $($finalReport.PerformanceMetrics.AverageTimePerVM) seconds" -ForegroundColor White
+        Write-Host "   Overall Efficiency: $($finalReport.PerformanceMetrics.OverallEfficiency)%" -ForegroundColor White
+        Write-Host ""
+        
+        # Operations Summary
+        Write-Host "🏷️ OPERATIONS COMPLETED:" -ForegroundColor Cyan
+        Write-Host "   Tags Assigned: $($finalReport.Operations.TagsAssigned)" -ForegroundColor White
+        Write-Host "   Permissions Created: $($finalReport.Operations.PermissionsCreated)" -ForegroundColor White
+        Write-Host "   Permissions Skipped: $($finalReport.Operations.PermissionsSkipped)" -ForegroundColor White
+        Write-Host "   Permission Failures: $($finalReport.Operations.PermissionsFailed)" -ForegroundColor White
+        Write-Host ""
+        
+        # Batch Processing
+        Write-Host "📦 BATCH PROCESSING:" -ForegroundColor Cyan
+        Write-Host "   Batches Completed: $($finalReport.Batches.Completed) / $($finalReport.Batches.Total)" -ForegroundColor White
+        Write-Host ""
+        
+        Write-Host "╔══════════════════════════════════════════════════════════════════════════════════════╗" -ForegroundColor Green
+        Write-Host "║                                     EXECUTION COMPLETE                                  ║" -ForegroundColor Green
+        Write-Host "╚══════════════════════════════════════════════════════════════════════════════════════╝" -ForegroundColor Green
+        Write-Host ""
+        
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to show final progress summary: $_" "ERROR"
+    }
+}
+#endregion
+
+#region Error Handling for Parallel Operations
+
+# Global error tracking for parallel operations
+$script:ParallelErrors = [System.Collections.Concurrent.ConcurrentBag[PSObject]]::new()
+$script:RetryAttempts = @{}
+$script:MaxRetries = 3
+$script:RetryDelaySeconds = 2
+
+function Initialize-ErrorHandling {
+    <#
+    .SYNOPSIS
+    Initializes the error handling system for parallel operations.
+    
+    .DESCRIPTION
+    Sets up concurrent error tracking, retry mechanisms, and recovery strategies
+    for robust parallel processing of VM operations.
+    #>
+    [CmdletBinding()]
+    param()
+    
+    try {
+        Write-ThreadSafeLog "Initializing error handling system for parallel operations" "INFO"
+        
+        # Initialize error tracking collections
+        $script:ParallelErrors = [System.Collections.Concurrent.ConcurrentBag[PSObject]]::new()
+        $script:RetryAttempts = [System.Collections.Concurrent.ConcurrentDictionary[string, int]]::new()
+        
+        # Set default retry configuration
+        if (-not $script:MaxRetries) { $script:MaxRetries = 3 }
+        if (-not $script:RetryDelaySeconds) { $script:RetryDelaySeconds = 2 }
+        
+        Write-ThreadSafeLog "Error handling system initialized successfully" "INFO"
+        Write-ThreadSafeLog "Max retries: $script:MaxRetries, Retry delay: $script:RetryDelaySeconds seconds" "DEBUG"
+        
+        return $true
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to initialize error handling system: $_" "ERROR"
+        return $false
+    }
+}
+
+function Register-ParallelError {
+    <#
+    .SYNOPSIS
+    Registers an error that occurred during parallel operations.
+    
+    .DESCRIPTION
+    Thread-safely logs and tracks errors from parallel VM processing operations,
+    including context information for debugging and recovery.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VMName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Operation,
+        
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord,
+        
+        [Parameter(Mandatory = $false)]
+        [int]$ThreadId = [System.Threading.Thread]::CurrentThread.ManagedThreadId,
+        
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Context = @{}
+    )
+    
+    try {
+        $errorInfo = [PSCustomObject]@{
+            Timestamp = Get-Date
+            VMName = $VMName
+            Operation = $Operation
+            ThreadId = $ThreadId
+            ErrorMessage = $ErrorRecord.Exception.Message
+            ErrorCategory = $ErrorRecord.CategoryInfo.Category
+            ScriptStackTrace = $ErrorRecord.ScriptStackTrace
+            FullyQualifiedErrorId = $ErrorRecord.FullyQualifiedErrorId
+            Context = $Context
+            RetryCount = $script:RetryAttempts["$VMName-$Operation"]
+        }
+        
+        # Add to concurrent error collection
+        $script:ParallelErrors.Add($errorInfo)
+        
+        # Log the error with thread context
+        $contextStr = if ($Context.Count -gt 0) { " Context: $($Context | ConvertTo-Json -Compress)" } else { "" }
+        Write-ThreadSafeLog "Thread $ThreadId - VM '$VMName' failed operation '$Operation': $($ErrorRecord.Exception.Message)$contextStr" "ERROR"
+        
+        # Update progress data with error information
+        if ($script:ProgressData.ContainsKey($ThreadId)) {
+            $script:ProgressData[$ThreadId].ErrorCount++
+            $script:ProgressData[$ThreadId].LastError = $ErrorRecord.Exception.Message
+            $script:ProgressData[$ThreadId].LastErrorTime = Get-Date
+        }
+        
+        return $errorInfo
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to register parallel error: $_" "ERROR"
+        return $null
+    }
+}
+
+function Test-ShouldRetry {
+    <#
+    .SYNOPSIS
+    Determines if an operation should be retried based on error type and retry count.
+    
+    .DESCRIPTION
+    Analyzes error conditions to determine if a retry is appropriate and manages
+    retry attempt tracking for parallel operations.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VMName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Operation,
+        
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+    
+    try {
+        $retryKey = "$VMName-$Operation"
+        $currentRetries = $script:RetryAttempts.GetOrAdd($retryKey, 0)
+        
+        # Check if we've exceeded max retries
+        if ($currentRetries -ge $script:MaxRetries) {
+            Write-ThreadSafeLog "VM '$VMName' operation '$Operation' exceeded max retries ($script:MaxRetries)" "WARN"
+            return $false
+        }
+        
+        # Determine if error type is retryable
+        $isRetryable = $false
+        $errorMessage = $ErrorRecord.Exception.Message
+        $errorCategory = $ErrorRecord.CategoryInfo.Category
+        
+        # Network/connectivity related errors are generally retryable
+        if ($errorMessage -match "timeout|connection|network|unavailable|busy|locked" -or
+            $errorCategory -in @('ConnectionError', 'ResourceUnavailable', 'OperationTimeout')) {
+            $isRetryable = $true
+        }
+        
+        # PowerCLI specific retryable errors
+        if ($errorMessage -match "The operation is not allowed in the current state|Server was unable to process request|Service Unavailable") {
+            $isRetryable = $true
+        }
+        
+        # Authentication errors might be temporary
+        if ($errorMessage -match "authentication|authorization" -and $currentRetries -eq 0) {
+            $isRetryable = $true
+        }
+        
+        # Log retry decision
+        if ($isRetryable) {
+            Write-ThreadSafeLog "VM '$VMName' operation '$Operation' is retryable (attempt $($currentRetries + 1)/$script:MaxRetries)" "INFO"
+        } else {
+            Write-ThreadSafeLog "VM '$VMName' operation '$Operation' is not retryable or permanent failure" "WARN"
+        }
+        
+        return $isRetryable
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to determine retry eligibility: $_" "ERROR"
+        return $false
+    }
+}
+
+function Invoke-RetryOperation {
+    <#
+    .SYNOPSIS
+    Executes a retry of a failed operation with exponential backoff.
+    
+    .DESCRIPTION
+    Implements retry logic with configurable delays and tracks retry attempts
+    for robust error recovery in parallel operations.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VMName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Operation,
+        
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock,
+        
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Parameters = @{},
+        
+        [Parameter(Mandatory = $false)]
+        [int]$ThreadId = [System.Threading.Thread]::CurrentThread.ManagedThreadId
+    )
+    
+    try {
+        $retryKey = "$VMName-$Operation"
+        
+        # Increment retry count
+        $retryCount = $script:RetryAttempts.AddOrUpdate($retryKey, 1, { param($key, $oldValue) $oldValue + 1 })
+        
+        # Calculate exponential backoff delay
+        $delaySeconds = $script:RetryDelaySeconds * [Math]::Pow(2, $retryCount - 1)
+        $maxDelay = 30 # Cap at 30 seconds
+        if ($delaySeconds -gt $maxDelay) { $delaySeconds = $maxDelay }
+        
+        Write-ThreadSafeLog "Thread $ThreadId - Retrying VM '$VMName' operation '$Operation' (attempt $retryCount) after $delaySeconds second delay" "INFO"
+        
+        # Wait before retry
+        Start-Sleep -Seconds $delaySeconds
+        
+        # Update progress tracking
+        if ($script:ProgressData.ContainsKey($ThreadId)) {
+            $script:ProgressData[$ThreadId].RetryCount++
+            $script:ProgressData[$ThreadId].CurrentOperation = "Retrying: $Operation"
+        }
+        
+        # Execute the retry
+        $result = & $ScriptBlock @Parameters
+        
+        # If successful, remove from retry tracking
+        $script:RetryAttempts.TryRemove($retryKey, [ref]$null) | Out-Null
+        
+        Write-ThreadSafeLog "Thread $ThreadId - VM '$VMName' operation '$Operation' retry successful" "INFO"
+        
+        return @{
+            Success = $true
+            Result = $result
+            RetryCount = $retryCount
+        }
+    }
+    catch {
+        Write-ThreadSafeLog "Thread $ThreadId - VM '$VMName' operation '$Operation' retry failed: $_" "ERROR"
+        
+        return @{
+            Success = $false
+            Error = $_
+            RetryCount = $retryCount
+        }
+    }
+}
+
+function Invoke-RobustOperation {
+    <#
+    .SYNOPSIS
+    Executes an operation with built-in error handling and retry logic.
+    
+    .DESCRIPTION
+    Wraps VM operations with comprehensive error handling, retry mechanisms,
+    and recovery strategies for robust parallel execution.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$VMName,
+        
+        [Parameter(Mandatory = $true)]
+        [string]$Operation,
+        
+        [Parameter(Mandatory = $true)]
+        [scriptblock]$ScriptBlock,
+        
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Parameters = @{},
+        
+        [Parameter(Mandatory = $false)]
+        [hashtable]$Context = @{},
+        
+        [Parameter(Mandatory = $false)]
+        [int]$ThreadId = [System.Threading.Thread]::CurrentThread.ManagedThreadId
+    )
+    
+    try {
+        Write-ThreadSafeLog "Thread $ThreadId - Starting robust operation '$Operation' for VM '$VMName'" "DEBUG"
+        
+        # Initial attempt
+        try {
+            $result = & $ScriptBlock @Parameters
+            Write-ThreadSafeLog "Thread $ThreadId - VM '$VMName' operation '$Operation' completed successfully" "DEBUG"
+            
+            return @{
+                Success = $true
+                Result = $result
+                RetryCount = 0
+            }
+        }
+        catch {
+            # Register the error
+            $errorInfo = Register-ParallelError -VMName $VMName -Operation $Operation -ErrorRecord $_ -ThreadId $ThreadId -Context $Context
+            
+            # Check if we should retry
+            if (Test-ShouldRetry -VMName $VMName -Operation $Operation -ErrorRecord $_) {
+                # Attempt retry
+                $retryResult = Invoke-RetryOperation -VMName $VMName -Operation $Operation -ScriptBlock $ScriptBlock -Parameters $Parameters -ThreadId $ThreadId
+                
+                if ($retryResult.Success) {
+                    Write-ThreadSafeLog "Thread $ThreadId - VM '$VMName' operation '$Operation' recovered after $($retryResult.RetryCount) retries" "INFO"
+                    return $retryResult
+                } else {
+                    Write-ThreadSafeLog "Thread $ThreadId - VM '$VMName' operation '$Operation' failed after all retry attempts" "ERROR"
+                    throw $retryResult.Error
+                }
+            } else {
+                Write-ThreadSafeLog "Thread $ThreadId - VM '$VMName' operation '$Operation' failed with non-retryable error" "ERROR"
+                throw
+            }
+        }
+    }
+    catch {
+        # Final error registration
+        Register-ParallelError -VMName $VMName -Operation $Operation -ErrorRecord $_ -ThreadId $ThreadId -Context $Context
+        
+        return @{
+            Success = $false
+            Error = $_
+            RetryCount = $script:RetryAttempts["$VMName-$Operation"]
+        }
+    }
+}
+
+function Get-ParallelErrorSummary {
+    <#
+    .SYNOPSIS
+    Generates a comprehensive summary of all parallel operation errors.
+    
+    .DESCRIPTION
+    Analyzes collected error data to provide insights into failure patterns,
+    retry statistics, and recommendations for system improvements.
+    #>
+    [CmdletBinding()]
+    param()
+    
+    try {
+        $errors = $script:ParallelErrors.ToArray()
+        
+        if ($errors.Count -eq 0) {
+            Write-ThreadSafeLog "No parallel operation errors to summarize" "INFO"
+            return @{
+                TotalErrors = 0
+                Summary = "No errors occurred during parallel operations"
+            }
+        }
+        
+        # Group errors by various dimensions
+        $errorsByVM = $errors | Group-Object VMName
+        $errorsByOperation = $errors | Group-Object Operation
+        $errorsByCategory = $errors | Group-Object ErrorCategory
+        $errorsByThread = $errors | Group-Object ThreadId
+        
+        # Calculate statistics
+        $totalErrors = $errors.Count
+        $uniqueVMs = $errorsByVM.Count
+        $totalRetries = ($errors | Measure-Object RetryCount -Sum).Sum
+        $avgRetriesPerError = if ($totalErrors -gt 0) { [Math]::Round($totalRetries / $totalErrors, 2) } else { 0 }
+        
+        # Find most problematic VMs
+        $topErrorVMs = $errorsByVM | Sort-Object Count -Descending | Select-Object -First 5
+        
+        # Find most problematic operations
+        $topErrorOperations = $errorsByOperation | Sort-Object Count -Descending | Select-Object -First 5
+        
+        $summary = @"
+=== PARALLEL OPERATIONS ERROR SUMMARY ===
+Total Errors: $totalErrors
+Affected VMs: $uniqueVMs
+Total Retry Attempts: $totalRetries
+Average Retries per Error: $avgRetriesPerError
+
+TOP PROBLEMATIC VMs:
+$($topErrorVMs | ForEach-Object { "  $($_.Name): $($_.Count) errors" } | Out-String)
+
+TOP PROBLEMATIC OPERATIONS:
+$($topErrorOperations | ForEach-Object { "  $($_.Name): $($_.Count) errors" } | Out-String)
+
+ERROR CATEGORIES:
+$($errorsByCategory | ForEach-Object { "  $($_.Name): $($_.Count) errors" } | Out-String)
+
+THREAD DISTRIBUTION:
+$($errorsByThread | ForEach-Object { "  Thread $($_.Name): $($_.Count) errors" } | Out-String)
+"@
+        
+        Write-ThreadSafeLog $summary "INFO"
+        
+        return @{
+            TotalErrors = $totalErrors
+            UniqueVMs = $uniqueVMs
+            TotalRetries = $totalRetries
+            AverageRetriesPerError = $avgRetriesPerError
+            TopErrorVMs = $topErrorVMs
+            TopErrorOperations = $topErrorOperations
+            ErrorsByCategory = $errorsByCategory
+            ErrorsByThread = $errorsByThread
+            Summary = $summary
+        }
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to generate parallel error summary: $_" "ERROR"
+        return @{
+            TotalErrors = -1
+            Summary = "Failed to generate error summary: $_"
+        }
+    }
+}
+
+function Export-ParallelErrorReport {
+    <#
+    .SYNOPSIS
+    Exports detailed error information to CSV for analysis.
+    
+    .DESCRIPTION
+    Creates comprehensive error reports in CSV format for post-execution
+    analysis and troubleshooting of parallel operation failures.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$ExportPath
+    )
+    
+    try {
+        $errors = $script:ParallelErrors.ToArray()
+        
+        if ($errors.Count -eq 0) {
+            Write-ThreadSafeLog "No errors to export" "INFO"
+            return $false
+        }
+        
+        # Prepare error data for export
+        $exportData = $errors | ForEach-Object {
+            [PSCustomObject]@{
+                Timestamp = $_.Timestamp.ToString("yyyy-MM-dd HH:mm:ss.fff")
+                VMName = $_.VMName
+                Operation = $_.Operation
+                ThreadId = $_.ThreadId
+                ErrorMessage = $_.ErrorMessage
+                ErrorCategory = $_.ErrorCategory
+                RetryCount = $_.RetryCount
+                ContextData = ($_.Context | ConvertTo-Json -Compress -ErrorAction SilentlyContinue)
+                FullyQualifiedErrorId = $_.FullyQualifiedErrorId
+            }
+        }
+        
+        # Export to CSV
+        $exportData | Export-Csv -Path $ExportPath -NoTypeInformation -Encoding UTF8
+        
+        Write-ThreadSafeLog "Exported $($errors.Count) error records to: $ExportPath" "INFO"
+        return $true
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to export error report: $_" "ERROR"
+        return $false
+    }
+}
+
+function Reset-ErrorHandling {
+    <#
+    .SYNOPSIS
+    Resets the error handling system for a fresh start.
+    
+    .DESCRIPTION
+    Clears all error tracking data and retry attempts for a clean slate.
+    Typically called at the beginning of a new parallel operation cycle.
+    #>
+    [CmdletBinding()]
+    param()
+    
+    try {
+        Write-ThreadSafeLog "Resetting error handling system" "DEBUG"
+        
+        # Clear error collections
+        $script:ParallelErrors = [System.Collections.Concurrent.ConcurrentBag[PSObject]]::new()
+        $script:RetryAttempts = [System.Collections.Concurrent.ConcurrentDictionary[string, int]]::new()
+        
+        Write-ThreadSafeLog "Error handling system reset successfully" "DEBUG"
+        return $true
+    }
+    catch {
+        Write-ThreadSafeLog "Failed to reset error handling system: $_" "ERROR"
+        return $false
+    }
+}
+
+#endregion
+
 function Cleanup-OldLogs {
     [CmdletBinding()]
     Param(
@@ -371,6 +1717,62 @@ catch {
 Write-Log "Environment: $($Environment)" "INFO"
 Write-Log "vCenter Server: $($vCenterServer)" "INFO"
 Write-Log "Script Debug Enabled: $($script:ScriptDebugEnabled)" "INFO"
+
+# Initialize VMTags 2.0 parallel processing systems
+Write-Log "=== Initializing VMTags 2.0 Systems ===" "INFO"
+Write-Log "Parallel Processing Enabled: $($EnableParallelProcessing.IsPresent)" "INFO"
+Write-Log "Max Parallel Threads: $MaxParallelThreads" "INFO"
+Write-Log "Batch Strategy: $BatchStrategy" "INFO"
+Write-Log "Progress Tracking Enabled: $($EnableProgressTracking.IsPresent)" "INFO"
+Write-Log "Error Handling Enabled: $($EnableErrorHandling.IsPresent)" "INFO"
+
+if ($EnableParallelProcessing) {
+    # Initialize parallel processing systems
+    Write-Log "Initializing parallel processing infrastructure..." "INFO"
+    
+    # Initialize thread-safe logging
+    try {
+        Initialize-ThreadSafeLogging
+        Write-Log "Thread-safe logging system initialized" "INFO"
+    }
+    catch {
+        Write-Log "Failed to initialize thread-safe logging: $_" "ERROR"
+        $EnableParallelProcessing = $false
+    }
+    
+    # Initialize error handling if enabled
+    if ($EnableErrorHandling) {
+        try {
+            # Set global error handling parameters
+            $script:MaxRetries = $MaxOperationRetries
+            $script:RetryDelaySeconds = $RetryDelaySeconds
+            
+            Initialize-ErrorHandling
+            Write-Log "Error handling system initialized (Max Retries: $MaxOperationRetries, Delay: $RetryDelaySeconds sec)" "INFO"
+        }
+        catch {
+            Write-Log "Failed to initialize error handling: $_" "ERROR"
+            $EnableErrorHandling = $false
+        }
+    }
+    
+    # Initialize progress tracking if enabled
+    if ($EnableProgressTracking) {
+        try {
+            Write-Log "Progress tracking system will be started during VM processing" "INFO"
+        }
+        catch {
+            Write-Log "Failed to prepare progress tracking: $_" "ERROR"
+            $EnableProgressTracking = $false
+        }
+    }
+    
+    Write-Log "VMTags 2.0 systems initialization completed successfully" "INFO"
+} else {
+    Write-Log "Running in sequential mode (parallel processing disabled)" "INFO"
+}
+
+Write-Log "=== VMTags 2.0 Initialization Complete ===" "INFO"
 #endregion
 
 #region C) SSO & OTHER HELPER FUNCTIONS
