@@ -1,0 +1,30 @@
+# Temp Directory
+
+This directory contains temporary files created during VMTags execution.
+
+## Temporary File Types:
+
+### Execution Temp Files:
+- MainScript_[ExecutionID]_stdout.txt - PowerShell process stdout capture
+- MainScript_[ExecutionID]_stderr.txt - PowerShell process stderr capture
+- Progress_[ExecutionID]_*.tmp - Temporary progress tracking files
+
+### VMTags 2.1 Parallel Processing Temp Files:  
+- Thread_[ThreadID]_[Timestamp].tmp - Individual thread temporary files
+- BatchProgress_[BatchID].tmp - Batch processing progress files
+- ErrorRecovery_[OperationID].tmp - Error recovery state files
+
+## Automatic Cleanup:
+- Files are automatically cleaned up after successful execution
+- Failed operations may leave temp files for debugging
+- Launcher performs cleanup on startup
+
+## File Lifecycle:
+1. Created at operation start
+2. Used during execution for inter-process communication
+3. Cleaned up automatically on completion
+4. Retained on failure for troubleshooting
+
+## Security:
+Temporary files are excluded from version control and contain runtime data only.
+Files are cleaned up automatically to prevent accumulation of unnecessary data.

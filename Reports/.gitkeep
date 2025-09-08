@@ -1,0 +1,27 @@
+# Reports Directory
+
+This directory contains generated CSV reports and execution summaries from VMTags operations.
+
+## Generated Report Types:
+
+### Core Reports:
+- PermissionAssignmentResults_[Timestamp].csv - Detailed permission assignment results
+- ExecutionSummary_[Timestamp].csv - High-level execution statistics  
+- VMsWithOnlyInheritedPermissions_[Timestamp].csv - VMs with folder-inherited permissions
+- VMsNeedingAttention_[Timestamp].csv - VMs requiring manual review
+
+### VMTags 2.1 Advanced Reports:
+- ParallelProcessingReport_[Timestamp].csv - Thread performance and error analysis
+- ErrorAnalysisReport_[Timestamp].csv - Comprehensive error patterns and recovery statistics
+- PerformanceMetrics_[Timestamp].csv - Detailed performance and timing data
+
+## Organization:
+Reports are typically organized by environment subdirectories:
+- DEV/
+- KLEB/  
+- PROD/
+- OT/
+
+## Security:
+Report files are excluded from version control as they may contain sensitive organizational data.
+Implement retention policies and secure storage for compliance requirements.

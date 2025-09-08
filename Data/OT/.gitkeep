@@ -1,0 +1,21 @@
+# OT Environment Data Directory
+
+This directory contains CSV configuration files specific to the Operational Technology environment.
+
+## Required Files:
+- AppTagPermissions_OT.csv - OT application team permissions
+- OS-Mappings_OT.csv - OT OS detection patterns
+
+## Configuration:
+- vCenter Server: vcsa-ot.corp.local
+- SSO Domain: DLA-DaytonOT.local
+- Parallel Processing: 4 threads, RoundRobin strategy
+
+## Security:
+CSV files are excluded from version control to protect organizational data.
+Keep local copies secure and backed up.
+
+## OT Notes:
+- Highest security environment
+- Interactive authentication required
+- Most restrictive certificate policies

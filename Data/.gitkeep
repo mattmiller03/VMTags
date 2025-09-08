@@ -1,0 +1,16 @@
+# Data Directory
+This directory contains environment-specific CSV configuration files.
+
+## Directory Structure:
+- DEV/     - Development environment data files
+- KLEB/    - KLEB environment data files  
+- PROD/    - Production environment data files (create as needed)
+- OT/      - Operational Technology environment data files (create as needed)
+
+## Security Note:
+CSV files in this directory are automatically ignored by git to protect sensitive organizational data.
+Files remain local and secure while maintaining full VMTags functionality.
+
+## Required Files per Environment:
+- AppTagPermissions_[ENV].csv - Application team permission mappings
+- OS-Mappings_[ENV].csv - Operating system detection and tagging rules
