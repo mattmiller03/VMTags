@@ -1,0 +1,37 @@
+# Logs Directory
+
+This directory contains execution logs from VMTags operations with detailed debugging and audit information.
+
+## Log File Types:
+
+### Execution Logs:
+- VMTags_[Environment]_[Timestamp].log - Complete execution logs with all operations
+- VMTags_[Environment]_[Timestamp]_Debug.log - Detailed debug logs (when debug mode enabled)
+
+### VMTags 2.1 Enhanced Logging:
+- Thread-safe concurrent logging with mutex synchronization
+- Parallel operation tracking with thread IDs
+- Real-time progress updates and performance metrics
+- Comprehensive error handling logs with retry statistics
+
+## Log Levels:
+- DEBUG: Detailed operation information
+- INFO: General execution information  
+- WARN: Warning conditions and recoverable errors
+- ERROR: Error conditions requiring attention
+
+## Organization:
+Logs may be organized by environment subdirectories for clarity:
+- DEV/
+- KLEB/
+- PROD/
+- OT/
+
+## Retention:
+- Default: Keep 5 most recent log files per environment
+- Automatic cleanup on script startup
+- Configurable via VMTagsConfig.psd1
+
+## Security:
+Log files are excluded from version control as they may contain sensitive system and organizational information.
+Implement secure storage and retention policies for compliance requirements.

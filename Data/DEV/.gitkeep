@@ -1,0 +1,16 @@
+# DEV Environment Data Directory
+
+This directory contains CSV configuration files specific to the Development environment.
+
+## Required Files:
+- AppTagPermissions_DEV.csv - Development application team permissions
+- OS-Mappings_DEV.csv - Development OS detection patterns
+
+## Configuration:
+- vCenter Server: daisv0tp231.dir.ad.dla.mil
+- SSO Domain: DLA-Test-Dev.local
+- Parallel Processing: 4 threads, RoundRobin strategy
+
+## Security:
+CSV files are excluded from version control to protect organizational data.
+Keep local copies secure and backed up.

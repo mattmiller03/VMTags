@@ -1,0 +1,49 @@
+# Backup Directory
+
+This directory contains backup copies of configuration files and important data.
+
+## Backup File Types:
+
+### Configuration Backups:
+- VMTagsConfig_[Timestamp].psd1.bak - Configuration file backups
+- AppTagPermissions_[Environment]_[Timestamp].csv.bak - Permission mapping backups  
+- OS-Mappings_[Environment]_[Timestamp].csv.bak - OS pattern mapping backups
+
+### Execution Backups:
+- Pre-execution snapshots of CSV files before modifications
+- Configuration state before launcher updates
+- Credential metadata backups (encrypted data only)
+
+## Automatic Backup Features:
+- Pre-execution backup of critical configuration files
+- Automatic retention management (configurable)
+- Timestamped backups for point-in-time recovery
+- Environment-specific backup organization
+
+## Organization:
+Backups may be organized by type and environment:
+- Config/
+  - DEV/
+  - KLEB/
+  - PROD/
+  - OT/
+- Data/
+  - [Environment]/
+    - [Timestamp]/
+
+## Retention Policy:
+- Default: Keep 10 most recent backups per file type
+- Configurable via VMTagsConfig.psd1
+- Automatic cleanup of old backups
+- Manual backup management commands available
+
+## Recovery:
+Use backup files to restore previous configurations if needed:
+1. Identify appropriate backup by timestamp
+2. Copy backup file to original location
+3. Remove .bak extension
+4. Verify configuration integrity
+
+## Security:
+Backup files are excluded from version control to protect sensitive organizational data.
+Maintain secure storage and access controls for backup directories.

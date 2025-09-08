@@ -1,0 +1,16 @@
+# KLEB Environment Data Directory
+
+This directory contains CSV configuration files specific to the KLEB environment.
+
+## Required Files:
+- AppTagPermissions_KLE.csv - KLEB application team permissions  
+- OS-Mappings_KLE.csv - KLEB OS detection patterns
+
+## Configuration:
+- vCenter Server: klisv0pp251.dir.ad.dla.mil
+- SSO Domain: DLA-Kleber.local
+- Parallel Processing: 6 threads, PowerStateBalanced strategy
+
+## Security:
+CSV files are excluded from version control to protect organizational data.
+Keep local copies secure and backed up.
