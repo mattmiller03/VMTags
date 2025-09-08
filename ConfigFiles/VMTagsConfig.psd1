@@ -131,7 +131,7 @@
     DefaultPaths = @{
         TempDirectory               =   ".\Temp"
         PowerShell7Path             =   "C:\Program Files\PowerShell\7\pwsh.exe"
-        MainScriptPath              =   ".\Scripts\set-VMtagPermissions_v1.2.ps1"
+        MainScriptPath              =   ".\Scripts\set-VMtagPermissions.ps1"
         ConfigDirectory             =   ".\ConfigFiles"
         CredentialStorePath         =   ".\ConfigFiles\Credentials"
         ModulePath                  =   ".\Modules"
