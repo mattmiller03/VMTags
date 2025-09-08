@@ -36,3 +36,7 @@ desktop.ini
 
 # Ignore PowerShell profile backups
 *_profile.ps1.bak
+/Reports/KLEB/ExecutionSummary_KLEB_20250908_092652.csv
+/Reports/KLEB/PermissionAssignmentResults_KLEB_20250908_092652.csv
+/Reports/KLEB/VMsWithExplicitPermissions_KLEB_20250908_092652.csv
+/Reports/KLEB/VMTags_KLEB_Complete_20250908_092120.csv
