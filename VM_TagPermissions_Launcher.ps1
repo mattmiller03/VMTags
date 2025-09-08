@@ -125,10 +125,10 @@
     - Files named: vcenter_{environment}_{username}.credential
     
     CONFIGURATION REQUIREMENTS:
-    - VMTagsConfig.psd1 must be accessible
-    - VMTagsConfigManager.psm1 module must be available
+    - VMTagsConfig.psd1 must be accessible in ConfigFiles directory
     - Main PowerShell 7 script must be in configured location
     - Required CSV files must be accessible
+    - VMware PowerCLI v12.0+ must be installed
     
     SECURITY CONSIDERATIONS:
     - Always use least-privilege service accounts for vCenter access
@@ -267,62 +267,8 @@ if ($ConfigPath) {
 
 $script:ActualConfigPath = $actualConfigPath
 
-# Try multiple locations for the module in order of preference
-$moduleLocations = @()
-
-# 1. If ConfigPath was provided and exists, try there first
-if ($actualConfigPath) {
-    $moduleLocations += Join-Path $actualConfigPath "VMTagsConfigManager.psm1"
-}
-
-# 2. Try the script directory
-$moduleLocations += Join-Path $scriptRoot "VMTagsConfigManager.psm1"
-
-# 3. Try the Modules subdirectory (where your module actually is)
-$moduleLocations += Join-Path $scriptRoot "Modules\VMTagsConfigManager.psm1"
-
-# 4. Try common subdirectories
-$moduleLocations += Join-Path $scriptRoot "ConfigFiles\VMTagsConfigManager.psm1"
-
-# 5. Try based on your actual directory structure
-$moduleLocations += "C:\Temp\Scripts\VMTags\Modules\VMTagsConfigManager.psm1"
-
-# 6. Try relative to script directory
-$moduleLocations += Join-Path (Split-Path $scriptRoot -Parent) "ConfigFiles\VMTagsConfigManager.psm1"
-
-Write-Host "Searching for VMTagsConfigManager.psm1 in:" -ForegroundColor Cyan
-$moduleLocations | ForEach-Object { 
-    $exists = Test-Path $_
-    $status = if ($exists) { "[FOUND]" } else { "[NOT FOUND]" }
-    $color = if ($exists) { "Green" } else { "Gray" }
-    Write-Host "  $status $_" -ForegroundColor $color
-}
-
-$configModulePath = $moduleLocations | Where-Object { Test-Path $_ } | Select-Object -First 1
-
-if (-not $configModulePath) {
-    Write-Host "`nERROR: Configuration manager module not found!" -ForegroundColor Red
-    Write-Host "Please ensure VMTagsConfigManager.psm1 is in one of these locations:" -ForegroundColor Red
-    $moduleLocations | ForEach-Object { Write-Host "  - $_" -ForegroundColor Red }
-    
-    # Don't throw, just exit gracefully
-    Write-Host "`nPress any key to exit..." -ForegroundColor Yellow
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    return
-}
-
-Write-Host "`nLoading configuration module from: $($configModulePath)" -ForegroundColor Green
-
-try {
-    Import-Module $configModulePath -Force -Verbose:$false
-    Write-Host "Configuration module loaded successfully" -ForegroundColor Green
-}
-catch {
-    Write-Host "ERROR: Failed to load configuration module: $($_.Exception.Message)" -ForegroundColor Red
-    Write-Host "`nPress any key to exit..." -ForegroundColor Yellow
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-    return
-}
+# VMTags v2.1.0 - Direct configuration loading (no deprecated modules)
+Write-Host "Loading VMTags v2.1.0 configuration directly from PSD1..." -ForegroundColor Green
 #endregion
 
 #region Functions
@@ -1083,13 +1029,46 @@ function Initialize-Configuration {
         }
         
         # Load configuration
-        $loadParams = @{
-            Environment = $Environment
-            ConfigPath = $configFilePath
-            Verbose = $VerbosePreference -eq "Continue"
+        # VMTags v2.1.0 - Load configuration directly from PSD1 (no deprecated modules)
+        Write-Host "Loading configuration from: $configFilePath" -ForegroundColor Cyan
+        $baseConfig = Import-PowerShellDataFile -Path $configFilePath
+        
+        # Get environment-specific configuration
+        if (-not $baseConfig.Environments.$Environment) {
+            throw "Environment '$Environment' not found in configuration"
         }
         
-        $script:Config = Get-VMTagsConfig @loadParams
+        $envConfig = $baseConfig.Environments.$Environment
+        
+        # Build consolidated configuration (replaces Get-VMTagsConfig functionality)
+        $script:Config = @{}
+        
+        # Copy all base configuration sections except Environments
+        foreach ($key in $baseConfig.Keys) {
+            if ($key -ne 'Environments') {
+                $script:Config[$key] = $baseConfig[$key]
+            }
+        }
+        
+        # Add environment-specific settings
+        $script:Config.CurrentEnvironment = $Environment
+        $script:Config.vCenterServer = $envConfig.vCenterServer
+        $script:Config.SSODomain = $envConfig.SSODomain
+        $script:Config.DefaultCredentialUser = $envConfig.DefaultCredentialUser
+        $script:Config.TagCategories = $envConfig.TagCategories
+        $script:Config.DataPaths = $envConfig.DataPaths
+        $script:Config.EnvironmentSettings = $envConfig.Settings
+        
+        # Add runtime information
+        $script:Config.Runtime = @{
+            LoadedAt = Get-Date
+            LoadedBy = $env:USERNAME
+            LoadedFrom = $configFilePath
+            MachineName = $env:COMPUTERNAME
+            PowerShellVersion = $PSVersionTable.PSVersion.ToString()
+            Environment = $Environment
+            ConfigurationVersion = $baseConfig.Application.Version
+        }
         
         # Convert relative paths to absolute paths based on script location
         if ($script:Config) {
@@ -1186,8 +1165,48 @@ function Initialize-Configuration {
             Write-Host "Debug logging enabled" -ForegroundColor Yellow
         }
         
-        # Create required directories
-        $null = New-VMTagsDirectories -Config $script:Config
+        # Create required directories (inline replacement for New-VMTagsDirectories)
+        Write-Host "Creating required directories..." -ForegroundColor Cyan
+        $directoriesToCreate = @()
+        
+        # Add default paths directories
+        if ($script:Config.DefaultPaths) {
+            $script:Config.DefaultPaths.GetEnumerator() | Where-Object { 
+                $_.Key -like "*Directory*" -and $_.Value 
+            } | ForEach-Object {
+                $directoriesToCreate += $_.Value
+            }
+        }
+        
+        # Add environment-specific directories
+        if ($script:Config.DataPaths) {
+            $script:Config.DataPaths.GetEnumerator() | Where-Object { 
+                $_.Key -like "*Directory*" -and $_.Value 
+            } | ForEach-Object {
+                $directoriesToCreate += $_.Value
+            }
+            
+            # Add parent directories of file paths
+            $script:Config.DataPaths.GetEnumerator() | Where-Object { 
+                $_.Key -notlike "*Directory*" -and $_.Value 
+            } | ForEach-Object {
+                $parentDir = Split-Path $_.Value -Parent
+                if ($parentDir) {
+                    $directoriesToCreate += $parentDir
+                }
+            }
+        }
+        
+        # Create directories
+        $directoriesToCreate = $directoriesToCreate | Sort-Object -Unique | Where-Object { $_ }
+        foreach ($directory in $directoriesToCreate) {
+            if (-not (Test-Path $directory)) {
+                Write-Host "Creating directory: $directory" -ForegroundColor Gray
+                New-Item -Path $directory -ItemType Directory -Force | Out-Null
+            }
+        }
+        
+        Write-Host "Directory creation completed" -ForegroundColor Green
         
         # Ensure the log directory specifically exists
         if ($script:Config.DataPaths.LogDirectory) {
@@ -1220,13 +1239,28 @@ function Test-Prerequisites {
             $issues += "Configuration path validation failed"
         }
         
-        # Test configuration
+        # Test configuration (inline validation replaces Test-VMTagsConfig)
         if ($script:Config) {
-            $configValidation = Test-VMTagsConfig -Config $script:Config
-            if (-not $configValidation.IsValid) {
-                $issues += $configValidation.Issues
+            Write-Host "Validating configuration structure..." -ForegroundColor Cyan
+            
+            # Check required sections
+            $requiredSections = @('Application', 'DefaultPaths', 'CSVValidation', 'PowerShell7', 'Logging', 'Security')
+            foreach ($section in $requiredSections) {
+                if (-not $script:Config.ContainsKey($section)) {
+                    $issues += "Missing required configuration section: $section"
+                } elseif ($null -eq $script:Config[$section]) {
+                    $issues += "Configuration section is null: $section"
+                }
             }
-            $warnings += $configValidation.Warnings
+            
+            # Validate main script path
+            if (-not $script:Config.DefaultPaths.MainScriptPath) {
+                $issues += "MainScriptPath is not configured"
+            } elseif (-not (Test-Path $script:Config.DefaultPaths.MainScriptPath)) {
+                $issues += "Main script not found: $($script:Config.DefaultPaths.MainScriptPath)"
+            }
+            
+            Write-Host "Configuration validation completed" -ForegroundColor Green
         }
         
         # Test VMware PowerCLI (skip in dry run to avoid long delays)
@@ -2230,13 +2264,7 @@ finally {
         }
     }
     
-    # Remove configuration module
-    try {
-        Remove-Module VMTagsConfigManager -Force -ErrorAction SilentlyContinue
-    }
-    catch {
-        # Module might not be loaded
-    }
+    # VMTags v2.1.0 - No deprecated modules to clean up
     
     # Clear sensitive variables
     try {
