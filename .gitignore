@@ -1,0 +1,38 @@
+# VMTags 2.1 - Git Ignore Configuration
+# =====================================
+
+# Ignore CSV files in Data directories (contains sensitive organizational data)
+Data/**/*.csv
+
+# Ignore log files
+Logs/
+*.log
+
+# Ignore temporary files
+Temp/
+*.tmp
+
+# Ignore credential files
+Credentials/
+*.cred
+*.xml
+
+# Ignore backup files
+Backup/
+*.bak
+
+# Ignore PowerShell module cache
+*.psm1.cache
+
+# Ignore Windows thumbnail cache
+Thumbs.db
+
+# Ignore system files
+.DS_Store
+desktop.ini
+
+# Ignore Visual Studio Code settings
+.vscode/
+
+# Ignore PowerShell profile backups
+*_profile.ps1.bak
