@@ -228,18 +228,78 @@ if (-not (Test-Path $script:reportsFolder)) {
 function Write-AriaLog {
     param($Message, $Level = "INFO")
     
+    # VMTags v2.1.0 - Sanitize message to protect sensitive data in Aria logs
+    $sanitizedMessage = Protect-SensitiveData -Message $Message
+    
     $ariaLogEntry = @{
         Timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss.fffZ"
         Level = $Level
         Source = "VMTags-Automation"
         Environment = $Environment
-        Message = $Message
+        Message = $sanitizedMessage
         Machine = $env:COMPUTERNAME
         User = $env:USERNAME
     }
     
     # Output in format Aria can parse
     $ariaLogEntry | ConvertTo-Json -Compress | Write-Host
+}
+
+function Protect-SensitiveData {
+    <#
+    .SYNOPSIS
+        Sanitizes log messages to remove sensitive data patterns
+    .DESCRIPTION
+        VMTags v2.1.0 - Protects sensitive data in logs by replacing patterns with sanitized versions
+    #>
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Message
+    )
+    
+    $sanitized = $Message
+    
+    # Password patterns (case insensitive)
+    $sanitized = $sanitized -replace '(?i)(password\s*[=:]\s*)([^\s;,]+)', '$1***REDACTED***'
+    $sanitized = $sanitized -replace '(?i)(passwd\s*[=:]\s*)([^\s;,]+)', '$1***REDACTED***'
+    $sanitized = $sanitized -replace '(?i)(pwd\s*[=:]\s*)([^\s;,]+)', '$1***REDACTED***'
+    
+    # Token/Key patterns
+    $sanitized = $sanitized -replace '(?i)(token\s*[=:]\s*)([^\s;,]+)', '$1***REDACTED***'
+    $sanitized = $sanitized -replace '(?i)(apikey\s*[=:]\s*)([^\s;,]+)', '$1***REDACTED***'
+    $sanitized = $sanitized -replace '(?i)(api[_-]?key\s*[=:]\s*)([^\s;,]+)', '$1***REDACTED***'
+    $sanitized = $sanitized -replace '(?i)(secret\s*[=:]\s*)([^\s;,]+)', '$1***REDACTED***'
+    $sanitized = $sanitized -replace '(?i)(private[_-]?key\s*[=:]\s*)([^\s;,]+)', '$1***REDACTED***'
+    
+    # SecureString patterns
+    $sanitized = $sanitized -replace '(System\.Security\.SecureString)([^\s]*)', 'SecureString ***PROTECTED***'
+    $sanitized = $sanitized -replace '(ConvertTo-SecureString\s+)([^\s;]+)', '$1***REDACTED***'
+    
+    # Credential object patterns - simplified patterns
+    $sanitized = $sanitized -replace '(NetworkCredential\([^,)]+,\s*)([^)]+)', '$1***REDACTED***)'
+    $sanitized = $sanitized -replace '(PSCredential\([^,)]+,\s*)([^)]+)', '$1***PROTECTED***)'
+    
+    # Connection string patterns
+    $sanitized = $sanitized -replace '(?i)(server\s*=\s*[^;]+;\s*uid\s*=\s*[^;]+;\s*pwd\s*=\s*)([^;]+)', '$1***REDACTED***'
+    $sanitized = $sanitized -replace '(?i)(password\s*=\s*)([^;"\s]+)', '$1***REDACTED***'
+    
+    # PowerShell argument sanitization - protect -Password, -Credential arguments
+    $sanitized = $sanitized -replace '(?i)(-Password\s+)([^\s-]+)', '$1***REDACTED***'
+    $sanitized = $sanitized -replace '(?i)(-Credential\s+)([^\s-]+)', '$1***PROTECTED***'
+    
+    # Session tokens and authentication strings
+    $sanitized = $sanitized -replace '(?i)(session[_-]?(?:id|token|key)\s*[=:]\s*)([^\s;,]+)', '$1***SESSION_PROTECTED***'
+    $sanitized = $sanitized -replace '(?i)(auth[_-]?(?:token|key)\s*[=:]\s*)([^\s;,]+)', '$1***AUTH_PROTECTED***'
+    
+    # vCenter session IDs and authentication tokens
+    $sanitized = $sanitized -replace '(vmware-api-session-id[=:]\s*)([^\s;,]+)', '$1***VMWARE_SESSION***'
+    $sanitized = $sanitized -replace '(SAML[_-]?token[=:]\s*)([^\s;,]+)', '$1***SAML_TOKEN***'
+    
+    # PowerCLI connection strings and session information
+    $sanitized = $sanitized -replace '(Connect-VIServer.*-Password\s+)([^\s-]+)', '$1***REDACTED***'
+    $sanitized = $sanitized -replace '(Connect-CisServer.*-Password\s+)([^\s-]+)', '$1***REDACTED***'
+    
+    return $sanitized
 }
 
 function Write-Log {
@@ -266,10 +326,13 @@ function Write-Log {
     }
     
     if ($writeThisLog) {
+        # VMTags v2.1.0 - Sanitize message to protect sensitive data
+        $sanitizedMessage = Protect-SensitiveData -Message $Message
+        
         $logEntry = [PSCustomObject]@{
             Timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
             Level     = $Level.ToUpper()
-            Message   = $Message
+            Message   = $sanitizedMessage
         }
         
         $script:outputLog += $logEntry
