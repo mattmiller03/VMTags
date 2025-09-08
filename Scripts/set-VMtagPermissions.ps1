@@ -506,7 +506,26 @@ function Ensure-TagCategory {
         return New-TagCategory -Name $CategoryName -Description $Description -Cardinality $Cardinality -EntityType $EntityType -ErrorAction Stop
     }
     catch {
-        Write-Log "Failed to create category '$($CategoryName)': $_" "ERROR"
+        # Handle parallel processing race conditions for categories too
+        if ($_.Exception.Message -match "already.exists|AlreadyExists") {
+            Write-Log "Category '$($CategoryName)' was created by another thread - checking for existing category" "DEBUG"
+            $existingCatAfterError = Get-TagCategory -Name $CategoryName -ErrorAction SilentlyContinue
+            if ($existingCatAfterError) {
+                Write-Log "Successfully found existing category '$($CategoryName)'" "INFO"
+                return $existingCatAfterError
+            }
+        } else {
+            Write-Log "Unexpected category creation error for '$($CategoryName)': $_" "WARN"
+        }
+        
+        # Final check for category existence
+        $finalCheck = Get-TagCategory -Name $CategoryName -ErrorAction SilentlyContinue
+        if ($finalCheck) {
+            Write-Log "Category '$($CategoryName)' found after creation error - using existing category" "INFO"
+            return $finalCheck
+        }
+        
+        Write-Log "Failed to create or find category '$($CategoryName)'" "ERROR"
         return $null
     }
 }
@@ -529,8 +548,21 @@ function Ensure-Tag {
         return $newTag
     }
     catch {
-        # If creation fails, check if tag was created by another process (race condition)
-        Write-Log "Tag creation failed, checking if tag now exists: $_" "WARN"
+        # Handle parallel processing race conditions gracefully
+        if ($_.Exception.Message -match "already.exists|AlreadyExists") {
+            # This is expected in parallel processing - another thread created the tag
+            Write-Log "Tag '$($TagName)' was created by another thread - checking for existing tag" "DEBUG"
+            $existingTagAfterError = Get-Tag -Name $TagName -Category $Category -ErrorAction SilentlyContinue
+            if ($existingTagAfterError) {
+                Write-Log "Successfully found existing tag '$($TagName)' in category '$($Category.Name)'" "INFO"
+                return $existingTagAfterError
+            }
+        } else {
+            # This is an unexpected error - log as warning
+            Write-Log "Unexpected tag creation error: $_" "WARN"
+        }
+        
+        # Double-check one more time after any error
         $existingTagAfterError = Get-Tag -Name $TagName -Category $Category -ErrorAction SilentlyContinue
         if ($existingTagAfterError) {
             Write-Log "Tag '$($TagName)' found after creation error - using existing tag" "INFO"
