@@ -109,7 +109,7 @@
 .NOTES
     Name: VM_TagPermissions_Launcher_v2.ps1
     Author: [Your Name]
-    Version: 2.0
+    Version: 2.1.0
     Requires: PowerShell 5.1 or higher, VMware PowerCLI
     
     CREDENTIAL SECURITY:
@@ -1999,7 +1999,7 @@ if ($ClearAllCredentials) {
 
 #region Main Execution
 try {
-    Write-Host "=== VM Tags and Permissions Launcher v2.0 ===" -ForegroundColor Green
+    Write-Host "=== VM Tags and Permissions Launcher v2.1.0 ===" -ForegroundColor Green
     Write-Host "Execution ID: $($script:ExecutionId)" -ForegroundColor Cyan
     
     # Initialize configuration
@@ -2022,7 +2022,7 @@ try {
         }
     }
     
-    Write-Log "=== VM Tags and Permissions Launcher v2.0 Started ===" -Level Success
+    Write-Log "=== VM Tags and Permissions Launcher v2.1.0 Started ===" -Level Success
     Write-Log "Configuration Version: $($script:Config.Application.Version)" -Level Info
     Write-Log "PowerShell Version: $($PSVersionTable.PSVersion)" -Level Info
     Write-Log "Machine: $($env:COMPUTERNAME)" -Level Info
