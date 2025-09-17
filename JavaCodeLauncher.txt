@@ -1,0 +1,77 @@
+// Build the PowerShell command with parameters
+  var psCommand = "& '" + scriptPath + "'";
+
+  // Add mandatory Environment parameter
+  psCommand += " -Environment '" + environment + "'";
+
+  // Add optional parameters if provided
+  if (vCenterServer && vCenterServer.trim() !== "") {
+      psCommand += " -vCenterServer '" + vCenterServer + "'";
+  }
+
+  if (enableDebug === true) {
+      psCommand += " -EnableDebug";
+  }
+
+  System.log("Executing PowerShell command: " + psCommand);
+
+  try {
+      // Execute the PowerShell script
+      var psResult = host.executeScript(psCommand);
+
+      // Log the raw output for debugging
+      System.log("PowerShell script completed");
+      System.log("Exit code: " + psResult.exitCode);
+      System.log("Output: " + psResult.output);
+
+      // Parse the output to extract Aria-specific results
+      var outputLines = psResult.output.split('\n');
+      var ariaResult = null;
+
+      for (var i = 0; i < outputLines.length; i++) {
+          var line = outputLines[i].trim();
+          if (line.startsWith("ARIA_RESULT:")) {
+              try {
+                  var resultJson = line.substring("ARIA_RESULT:".length).trim();
+                  ariaResult = JSON.parse(resultJson);
+                  break;
+              } catch (parseError) {
+                  System.warn("Failed to parse Aria result JSON: " + parseError);
+              }
+          }
+      }
+
+      // Set the result
+      if (ariaResult) {
+          result = ariaResult;
+          System.log("Execution Status: " + ariaResult.ExecutionStatus);
+
+          // Set workflow status based on script result
+          if (ariaResult.ExecutionStatus === "FAILED") {
+              throw new Error("VM Tags automation failed with exit code: " + ariaResult.ExitCode);
+          }
+      } else {
+          // Fallback result if no structured output found
+          result = {
+              ExecutionStatus: psResult.exitCode === 0 ? "SUCCESS" : "FAILED",
+              ExitCode: psResult.exitCode,
+              Output: psResult.output,
+              RawResult: true
+          };
+      }
+
+      System.log("VM Tags automation completed successfully");
+
+  } catch (error) {
+      System.error("PowerShell script execution failed: " + error);
+
+      // Create error result
+      result = {
+          ExecutionStatus: "FAILED",
+          ExitCode: -1,
+          ErrorMessage: error.toString(),
+          Timestamp: new Date().toISOString()
+      };
+
+      throw error;
+  }
