@@ -561,9 +561,37 @@ function Test-SsoGroupExistsSimple {
     }
 }
 function Ensure-TagCategory {
-    param([string]$CategoryName, [string]$Description = "Managed by script", [string]$Cardinality = "MULTIPLE", [string[]]$EntityType = @("VirtualMachine"))
+    param([string]$CategoryName, [string]$Description = "Managed by script", [string]$Cardinality = "MULTIPLE", [string[]]$EntityType = @("VirtualMachine", "Folder", "VApp", "ResourcePool", "HostSystem"))
     $existingCat = Get-TagCategory -Name $CategoryName -ErrorAction SilentlyContinue
-    if ($existingCat) { return $existingCat }
+    if ($existingCat) {
+        # Check if existing category needs entity type updates
+        $currentEntityTypes = $existingCat.EntityType
+        $needsUpdate = $false
+
+        foreach ($type in $EntityType) {
+            if ($currentEntityTypes -notcontains $type) {
+                $needsUpdate = $true
+                break
+            }
+        }
+
+        if ($needsUpdate) {
+            Write-Log "Category '$($CategoryName)' exists but needs entity type updates. Current: [$($currentEntityTypes -join ', ')], Required: [$($EntityType -join ', ')]" "INFO"
+            try {
+                # Combine existing and new entity types, removing duplicates
+                $updatedEntityTypes = @($currentEntityTypes) + @($EntityType) | Sort-Object -Unique
+                Set-TagCategory -Category $existingCat -EntityType $updatedEntityTypes -ErrorAction Stop
+                Write-Log "Successfully updated entity types for category '$($CategoryName)' to: [$($updatedEntityTypes -join ', ')]" "INFO"
+                return Get-TagCategory -Name $CategoryName -ErrorAction SilentlyContinue
+            }
+            catch {
+                Write-Log "Failed to update entity types for category '$($CategoryName)': $_" "WARN"
+                Write-Log "Continuing with existing category as-is" "INFO"
+            }
+        }
+
+        return $existingCat
+    }
     Write-Log "Category '$($CategoryName)' not found, creating..." "INFO"
     try {
         return New-TagCategory -Name $CategoryName -Description $Description -Cardinality $Cardinality -EntityType $EntityType -ErrorAction Stop
@@ -1112,7 +1140,7 @@ try {
     Write-Log "Ensuring tag categories exist..." "INFO"
     
     $appCat = Ensure-TagCategory -CategoryName $AppCategoryName
-    $osCat = Ensure-TagCategory -CategoryName $OsCategoryName -EntityType @("VirtualMachine", "HostSystem")
+    $osCat = Ensure-TagCategory -CategoryName $OsCategoryName
     
     # For Function category - use existing instead of creating
     $functionCat = Get-TagCategory -Name $FunctionCategoryName -ErrorAction SilentlyContinue
