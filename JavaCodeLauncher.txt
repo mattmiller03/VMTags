@@ -46,24 +46,52 @@
           throw new Error("No suitable PowerShell execution method found on host object");
       }
 
-      // Log the raw output for debugging
-      System.log("PowerShell script completed");
-      System.log("Exit code: " + psResult.exitCode);
-      System.log("Output: " + psResult.output);
+      // Debug: Log the complete result object
+      System.log("PowerShell execution result:");
+      System.log("  psResult: " + psResult);
+      System.log("  psResult type: " + typeof psResult);
+
+      if (psResult) {
+          System.log("  exitCode: " + psResult.exitCode);
+          System.log("  output: " + psResult.output);
+          System.log("  output type: " + typeof psResult.output);
+
+          // Check for other possible property names
+          for (var prop in psResult) {
+              System.log("  " + prop + ": " + psResult[prop]);
+          }
+      }
+
+      // Safely handle the output parsing
+      var outputText = "";
+      if (psResult && psResult.output) {
+          outputText = psResult.output;
+      } else if (psResult && psResult.stdout) {
+          outputText = psResult.stdout;
+      } else if (psResult && typeof psResult === 'string') {
+          outputText = psResult;
+      } else {
+          System.log("No output found in result object");
+          outputText = "";
+      }
+
+      System.log("Output text to parse: " + outputText);
 
       // Parse the output to extract Aria-specific results
-      var outputLines = psResult.output.split('\n');
       var ariaResult = null;
+      if (outputText) {
+          var outputLines = outputText.split('\n');
 
-      for (var i = 0; i < outputLines.length; i++) {
-          var line = outputLines[i].trim();
-          if (line.startsWith("ARIA_RESULT:")) {
-              try {
-                  var resultJson = line.substring("ARIA_RESULT:".length).trim();
-                  ariaResult = JSON.parse(resultJson);
-                  break;
-              } catch (parseError) {
-                  System.warn("Failed to parse Aria result JSON: " + parseError);
+          for (var i = 0; i < outputLines.length; i++) {
+              var line = outputLines[i].trim();
+              if (line.startsWith("ARIA_RESULT:")) {
+                  try {
+                      var resultJson = line.substring("ARIA_RESULT:".length).trim();
+                      ariaResult = JSON.parse(resultJson);
+                      break;
+                  } catch (parseError) {
+                      System.warn("Failed to parse Aria result JSON: " + parseError);
+                  }
               }
           }
       }
@@ -79,10 +107,15 @@
           }
       } else {
           // Fallback result if no structured output found
+          var exitCode = 0;
+          if (psResult && psResult.exitCode !== undefined) {
+              exitCode = psResult.exitCode;
+          }
+
           result = {
-              ExecutionStatus: psResult.exitCode === 0 ? "SUCCESS" : "FAILED",
-              ExitCode: psResult.exitCode,
-              Output: psResult.output,
+              ExecutionStatus: exitCode === 0 ? "SUCCESS" : "FAILED",
+              ExitCode: exitCode,
+              Output: outputText,
               RawResult: true
           };
       }
