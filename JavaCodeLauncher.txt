@@ -121,3 +121,32 @@
 
       throw error;
   }
+
+
+  2025-09-18 14:27:38.369 -04:00info=== DEBUG: Input Values ===
+2025-09-18 14:27:38.370 -04:00infoscriptPath: c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1
+2025-09-18 14:27:38.372 -04:00infoenvironment: PROD
+2025-09-18 14:27:38.373 -04:00info===============================
+2025-09-18 14:27:38.377 -04:00infoAdded environment parameter: PROD
+2025-09-18 14:27:38.380 -04:00infoFinal PowerShell command: & 'c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1' -Environment 'PROD'
+2025-09-18 14:27:38.382 -04:00infoUsing invokeScript method
+2025-09-18 14:27:46.561 -04:00infoPowerShell execution completed
+2025-09-18 14:27:46.563 -04:00infopsResult object type: function
+2025-09-18 14:27:46.566 -04:00infoExit code: 0
+2025-09-18 14:27:46.568 -04:00infoOutput (getInvocationResult):
+2025-09-18 14:27:46.569 -04:00infoOutput (getOutput):
+2025-09-18 14:27:46.574 -04:00infoOutput (getResultAsString):
+2025-09-18 14:27:46.575 -04:00infoFinal output text:
+2025-09-18 14:27:46.577 -04:00infoFinal exit code: 0
+2025-09-18 14:27:46.578 -04:00infoVM Tags automation completed successfully
+2025-09-18 14:27:46.580 -04:00errorWorkflow:VMTags Script Execution / Scriptable task (item1) : ch.dunes.model.type.ConvertorException: Unable to convert object, '{RawResult=true, ExecutionStatus=SUCCESS, ExitCode=0.0, Output=}' plugin unexcepted exception : Bad type syntax 'Properties'
+2025-09-18 14:27:46.589 -04:00errorWorkflow execution stack:
+***
+item: 'VMTags Script Execution/item1', state: 'failed', business state: 'null', exception: 'Unable to convert object, '{RawResult=true, ExecutionStatus=SUCCESS, ExitCode=0.0, Output=}' plugin unexcepted exception : Bad type syntax 'Properties''
+workflow: 'VMTags Script Execution' (07b3341c-6fff-4033-9388-6df7b0ef1ad4) 
+|  'attribute': name=ScriptPath type=string value=c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1
+|  'attribute': name=ExecutionResult type=string value=
+|  'attribute': name=host type=PowerShell:PowerShellHost value=dunes://service.dunes.ch/CustomSDKObject?id='e23d7c79-e3d3-4453-b12d-842ac949b47e'&dunesName='PowerShell:PowerShellHost'
+|  'input': name=environment type=string value=PROD
+|  'output': name=result type=PowerShell:PowerShellRemotePSObject value=null
+*** End of execution stack.
