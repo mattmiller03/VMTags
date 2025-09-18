@@ -2,6 +2,8 @@
   System.log("=== DEBUG: Input Values ===");
   System.log("scriptPath: " + scriptPath);
   System.log("environment: " + environment);
+  System.log("host: " + host);
+  System.log("host type: " + typeof host);
   System.log("===============================");
 
   // Build the PowerShell command with only environment parameter
@@ -19,8 +21,30 @@
   System.log("Final PowerShell command: " + psCommand);
 
   try {
-      // Execute the PowerShell script
-      var psResult = host.executeScript(psCommand);
+      // Try different PowerShell execution methods based on plugin version
+      var psResult;
+
+      if (typeof host.invokeScript === 'function') {
+          System.log("Using invokeScript method");
+          psResult = host.invokeScript(psCommand);
+      } else if (typeof host.executeScript === 'function') {
+          System.log("Using executeScript method");
+          psResult = host.executeScript(psCommand);
+      } else if (typeof host.runScript === 'function') {
+          System.log("Using runScript method");
+          psResult = host.runScript(psCommand);
+      } else if (typeof host.execute === 'function') {
+          System.log("Using execute method");
+          psResult = host.execute(psCommand);
+      } else {
+          System.log("Available methods on host object:");
+          for (var prop in host) {
+              if (typeof host[prop] === 'function') {
+                  System.log("  - " + prop);
+              }
+          }
+          throw new Error("No suitable PowerShell execution method found on host object");
+      }
 
       // Log the raw output for debugging
       System.log("PowerShell script completed");
