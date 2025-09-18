@@ -75,3 +75,41 @@
 
       throw error;
   }
+
+
+
+    // Debug: Log all input values
+  System.log("=== DEBUG: Input Values ===");
+  System.log("scriptPath: " + scriptPath);
+  System.log("environment: " + environment);
+  System.log("vCenterServer: " + vCenterServer);
+  System.log("enableDebug: " + enableDebug);
+  System.log("enableDebug type: " + typeof enableDebug);
+  System.log("===============================");
+
+  // Build the PowerShell command with parameters
+  var psCommand = "& '" + scriptPath + "'";
+
+  // Add mandatory Environment parameter
+  if (environment) {
+      psCommand += " -Environment '" + environment + "'";
+      System.log("Added environment parameter");
+  } else {
+      System.log("WARNING: environment is null/undefined");
+  }
+
+  // Add optional parameters if provided
+  if (vCenterServer && vCenterServer.trim() !== "") {
+      psCommand += " -vCenterServer '" + vCenterServer + "'";
+      System.log("Added vCenterServer parameter");
+  }
+
+  // Handle the EnableDebug switch parameter
+  if (enableDebug === true || enableDebug === "true") {
+      psCommand += " -EnableDebug";
+      System.log("Added EnableDebug parameter");
+  } else {
+      System.log("EnableDebug not added - value: " + enableDebug);
+  }
+
+  System.log("Final PowerShell command: " + psCommand);
