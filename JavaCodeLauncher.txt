@@ -1,137 +1,32 @@
-  // Debug: Log input values
-  System.log("=== DEBUG: Input Values ===");
-  System.log("scriptPath: " + scriptPath);
-  System.log("environment: " + environment);
-  System.log("host: " + host);
-  System.log("host type: " + typeof host);
-  System.log("===============================");
 
-  // Build the PowerShell command with only environment parameter
-  var psCommand = "& '" + scriptPath + "'";
 
-  // Add mandatory Environment parameter
-  if (environment) {
-      psCommand += " -Environment '" + environment + "'";
-      System.log("Added environment parameter: " + environment);
-  } else {
-      System.log("ERROR: environment is null/undefined");
-      throw new Error("Environment parameter is required but not provided");
-  }
 
-  System.log("Final PowerShell command: " + psCommand);
 
-  try {
-      // Try different PowerShell execution methods based on plugin version
-      var psResult;
 
-      if (typeof host.invokeScript === 'function') {
-          System.log("Using invokeScript method");
-          psResult = host.invokeScript(psCommand);
-      } else if (typeof host.executeScript === 'function') {
-          System.log("Using executeScript method");
-          psResult = host.executeScript(psCommand);
-      } else if (typeof host.runScript === 'function') {
-          System.log("Using runScript method");
-          psResult = host.runScript(psCommand);
-      } else if (typeof host.execute === 'function') {
-          System.log("Using execute method");
-          psResult = host.execute(psCommand);
-      } else {
-          System.log("Available methods on host object:");
-          for (var prop in host) {
-              if (typeof host[prop] === 'function') {
-                  System.log("  - " + prop);
-              }
-          }
-          throw new Error("No suitable PowerShell execution method found on host object");
-      }
-
-      // Debug: Log the complete result object
-      System.log("PowerShell execution result:");
-      System.log("  psResult: " + psResult);
-      System.log("  psResult type: " + typeof psResult);
-
-      if (psResult) {
-          System.log("  exitCode: " + psResult.exitCode);
-          System.log("  output: " + psResult.output);
-          System.log("  output type: " + typeof psResult.output);
-
-          // Check for other possible property names
-          for (var prop in psResult) {
-              System.log("  " + prop + ": " + psResult[prop]);
-          }
-      }
-
-      // Safely handle the output parsing
-      var outputText = "";
-      if (psResult && psResult.output) {
-          outputText = psResult.output;
-      } else if (psResult && psResult.stdout) {
-          outputText = psResult.stdout;
-      } else if (psResult && typeof psResult === 'string') {
-          outputText = psResult;
-      } else {
-          System.log("No output found in result object");
-          outputText = "";
-      }
-
-      System.log("Output text to parse: " + outputText);
-
-      // Parse the output to extract Aria-specific results
-      var ariaResult = null;
-      if (outputText) {
-          var outputLines = outputText.split('\n');
-
-          for (var i = 0; i < outputLines.length; i++) {
-              var line = outputLines[i].trim();
-              if (line.startsWith("ARIA_RESULT:")) {
-                  try {
-                      var resultJson = line.substring("ARIA_RESULT:".length).trim();
-                      ariaResult = JSON.parse(resultJson);
-                      break;
-                  } catch (parseError) {
-                      System.warn("Failed to parse Aria result JSON: " + parseError);
-                  }
-              }
-          }
-      }
-
-      // Set the result
-      if (ariaResult) {
-          result = ariaResult;
-          System.log("Execution Status: " + ariaResult.ExecutionStatus);
-
-          // Set workflow status based on script result
-          if (ariaResult.ExecutionStatus === "FAILED") {
-              throw new Error("VM Tags automation failed with exit code: " + ariaResult.ExitCode);
-          }
-      } else {
-          // Fallback result if no structured output found
-          var exitCode = 0;
-          if (psResult && psResult.exitCode !== undefined) {
-              exitCode = psResult.exitCode;
-          }
-
-          result = {
-              ExecutionStatus: exitCode === 0 ? "SUCCESS" : "FAILED",
-              ExitCode: exitCode,
-              Output: outputText,
-              RawResult: true
-          };
-      }
-
-      System.log("VM Tags automation completed successfully");
-
-  } catch (error) {
-      System.error("PowerShell script execution failed: " + error);
-
-      // Create error result
-      result = {
-          ExecutionStatus: "FAILED",
-          ExitCode: -1,
-          ErrorMessage: error.toString(),
-          Timestamp: new Date().toISOString()
-      };
-
-      throw error;
-  }
+2025-09-18 14:17:20.955 -04:00info=== DEBUG: Input Values ===
+2025-09-18 14:17:20.957 -04:00infoscriptPath: c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1
+2025-09-18 14:17:20.959 -04:00infoenvironment: PROD
+2025-09-18 14:17:20.960 -04:00infohost: DynamicWrapper (Instance) : [PowerShellHost]-[class com.vmware.o11n.plugin.powershell.scripting.PowerShellHost] -- VALUE : com.vmware.o11n.plugin.powershell.scripting.PowerShellHost@694f221c
+2025-09-18 14:17:20.961 -04:00infohost type: function
+2025-09-18 14:17:20.963 -04:00info===============================
+2025-09-18 14:17:20.964 -04:00infoAdded environment parameter: PROD
+2025-09-18 14:17:20.966 -04:00infoFinal PowerShell command: & 'c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1' -Environment 'PROD'
+2025-09-18 14:17:20.967 -04:00infoUsing invokeScript method
+2025-09-18 14:17:32.580 -04:00infoPowerShell execution result:
+2025-09-18 14:17:32.582 -04:00infopsResult: DynamicWrapper (Instance) : [PowerShellInvocationResult]-[class com.vmware.o11n.plugin.powershell.model.InvocationResult] -- VALUE : com.vmware.o11n.plugin.powershell.model.InvocationResult@154d1
+2025-09-18 14:17:32.583 -04:00infopsResult type: function
+2025-09-18 14:17:32.585 -04:00infoexitCode: undefined
+2025-09-18 14:17:32.587 -04:00infooutput: undefined
+2025-09-18 14:17:32.589 -04:00infooutput type: undefined
+2025-09-18 14:17:32.593 -04:00errorPowerShell script execution failed: TypeError: Invalid iterator value
+2025-09-18 14:17:32.595 -04:00errorError in (Workflow:VMTags Script Execution / Scriptable task (item1)#136) TypeError: Invalid iterator value
+2025-09-18 14:17:32.606 -04:00errorWorkflow execution stack:
+***
+item: 'VMTags Script Execution/item1', state: 'failed', business state: 'null', exception: 'TypeError: Invalid iterator value (Workflow:VMTags Script Execution / Scriptable task (item1)#136)'
+workflow: 'VMTags Script Execution' (07b3341c-6fff-4033-9388-6df7b0ef1ad4) 
+|  'attribute': name=ScriptPath type=string value=c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1
+|  'attribute': name=ExecutionResult type=string value=
+|  'attribute': name=host type=PowerShell:PowerShellHost value=dunes://service.dunes.ch/CustomSDKObject?id='e23d7c79-e3d3-4453-b12d-842ac949b47e'&dunesName='PowerShell:PowerShellHost'
+|  'input': name=environment type=string value=PROD
+|  'output': name=result type=PowerShell:PowerShellRemotePSObject value=null
+*** End of execution stack.
