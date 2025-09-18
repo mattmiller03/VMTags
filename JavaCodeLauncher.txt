@@ -23,130 +23,61 @@
       System.log("Using invokeScript method");
       var psResult = host.invokeScript(psCommand);
 
-      // Debug: Log the result properties using correct method names
+      // Debug: Log the result properties
       System.log("PowerShell execution completed");
-      System.log("psResult object type: " + typeof psResult);
 
-      // Try different property names for PowerShell plugin
-      var exitCode = 0;
+      var exitCode = psResult.getExitCode ? psResult.getExitCode() : 0;
+      System.log("Exit code: " + exitCode);
+
+      // Try to get any output - PowerShell might be sending output to different streams
       var outputText = "";
 
+      // Try different output methods
       try {
-          exitCode = psResult.getExitCode ? psResult.getExitCode() : 0;
-          System.log("Exit code: " + exitCode);
+          var standardOut = psResult.getInvocationResult ? psResult.getInvocationResult() : "";
+          if (standardOut) outputText += standardOut;
       } catch (e) {
-          System.log("Could not get exit code: " + e);
+          System.log("No standard output: " + e);
       }
 
+      // Try error stream (in case output is going there)
       try {
-          outputText = psResult.getInvocationResult ? psResult.getInvocationResult() : "";
-          System.log("Output (getInvocationResult): " + outputText);
+          var errorOut = psResult.getErrorResult ? psResult.getErrorResult() : "";
+          if (errorOut) {
+              System.log("Error output found: " + errorOut);
+              outputText += errorOut;
+          }
       } catch (e) {
-          System.log("Could not get invocation result: " + e);
+          System.log("No error output method available");
       }
 
-      // Try alternative property names
-      if (!outputText) {
-          try {
-              outputText = psResult.getOutput ? psResult.getOutput() : "";
-              System.log("Output (getOutput): " + outputText);
-          } catch (e) {
-              System.log("Could not get output: " + e);
+      // Try host output stream
+      try {
+          var hostOut = psResult.getHostOutput ? psResult.getHostOutput() : "";
+          if (hostOut) {
+              System.log("Host output found: " + hostOut);
+              outputText += hostOut;
           }
+      } catch (e) {
+          System.log("No host output method available");
       }
 
-      if (!outputText) {
-          try {
-              outputText = psResult.getResultAsString ? psResult.getResultAsString() : "";
-              System.log("Output (getResultAsString): " + outputText);
-          } catch (e) {
-              System.log("Could not get result as string: " + e);
-          }
+      System.log("Final output text length: " + (outputText ? outputText.length : 0));
+      if (outputText) {
+          System.log("Output preview: " + outputText.substring(0, 200));
       }
 
-      System.log("Final output text: " + outputText);
-      System.log("Final exit code: " + exitCode);
+      // For now, create a simple string result instead of complex object
+      var executionStatus = (exitCode === 0) ? "SUCCESS" : "FAILED";
 
-      // Parse the output to extract Aria-specific results
-      var ariaResult = null;
-      if (outputText && outputText.length > 0) {
-          var outputLines = outputText.split('\n');
+      // Set simple result to avoid type conversion issues
+      result = executionStatus + " - Exit Code: " + exitCode;
 
-          for (var i = 0; i < outputLines.length; i++) {
-              var line = outputLines[i].trim();
-              if (line.indexOf("ARIA_RESULT:") === 0) {
-                  try {
-                      var resultJson = line.substring("ARIA_RESULT:".length).trim();
-                      ariaResult = JSON.parse(resultJson);
-                      System.log("Parsed Aria result: " + JSON.stringify(ariaResult));
-                      break;
-                  } catch (parseError) {
-                      System.warn("Failed to parse Aria result JSON: " + parseError);
-                  }
-              }
-          }
-      }
-
-      // Set the result
-      if (ariaResult) {
-          result = ariaResult;
-          System.log("Execution Status: " + ariaResult.ExecutionStatus);
-
-          // Set workflow status based on script result
-          if (ariaResult.ExecutionStatus === "FAILED") {
-              throw new Error("VM Tags automation failed with exit code: " + ariaResult.ExitCode);
-          }
-      } else {
-          // Fallback result if no structured output found
-          result = {
-              ExecutionStatus: exitCode === 0 ? "SUCCESS" : "FAILED",
-              ExitCode: exitCode,
-              Output: outputText,
-              RawResult: true
-          };
-      }
-
-      System.log("VM Tags automation completed successfully");
+      System.log("Setting result to: " + result);
+      System.log("VM Tags automation completed with status: " + executionStatus);
 
   } catch (error) {
       System.error("PowerShell script execution failed: " + error);
-
-      // Create error result
-      result = {
-          ExecutionStatus: "FAILED",
-          ExitCode: -1,
-          ErrorMessage: error.toString(),
-          Timestamp: new Date().toISOString()
-      };
-
+      result = "FAILED - Error: " + error.toString();
       throw error;
   }
-
-
-  2025-09-18 14:27:38.369 -04:00info=== DEBUG: Input Values ===
-2025-09-18 14:27:38.370 -04:00infoscriptPath: c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1
-2025-09-18 14:27:38.372 -04:00infoenvironment: PROD
-2025-09-18 14:27:38.373 -04:00info===============================
-2025-09-18 14:27:38.377 -04:00infoAdded environment parameter: PROD
-2025-09-18 14:27:38.380 -04:00infoFinal PowerShell command: & 'c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1' -Environment 'PROD'
-2025-09-18 14:27:38.382 -04:00infoUsing invokeScript method
-2025-09-18 14:27:46.561 -04:00infoPowerShell execution completed
-2025-09-18 14:27:46.563 -04:00infopsResult object type: function
-2025-09-18 14:27:46.566 -04:00infoExit code: 0
-2025-09-18 14:27:46.568 -04:00infoOutput (getInvocationResult):
-2025-09-18 14:27:46.569 -04:00infoOutput (getOutput):
-2025-09-18 14:27:46.574 -04:00infoOutput (getResultAsString):
-2025-09-18 14:27:46.575 -04:00infoFinal output text:
-2025-09-18 14:27:46.577 -04:00infoFinal exit code: 0
-2025-09-18 14:27:46.578 -04:00infoVM Tags automation completed successfully
-2025-09-18 14:27:46.580 -04:00errorWorkflow:VMTags Script Execution / Scriptable task (item1) : ch.dunes.model.type.ConvertorException: Unable to convert object, '{RawResult=true, ExecutionStatus=SUCCESS, ExitCode=0.0, Output=}' plugin unexcepted exception : Bad type syntax 'Properties'
-2025-09-18 14:27:46.589 -04:00errorWorkflow execution stack:
-***
-item: 'VMTags Script Execution/item1', state: 'failed', business state: 'null', exception: 'Unable to convert object, '{RawResult=true, ExecutionStatus=SUCCESS, ExitCode=0.0, Output=}' plugin unexcepted exception : Bad type syntax 'Properties''
-workflow: 'VMTags Script Execution' (07b3341c-6fff-4033-9388-6df7b0ef1ad4) 
-|  'attribute': name=ScriptPath type=string value=c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1
-|  'attribute': name=ExecutionResult type=string value=
-|  'attribute': name=host type=PowerShell:PowerShellHost value=dunes://service.dunes.ch/CustomSDKObject?id='e23d7c79-e3d3-4453-b12d-842ac949b47e'&dunesName='PowerShell:PowerShellHost'
-|  'input': name=environment type=string value=PROD
-|  'output': name=result type=PowerShell:PowerShellRemotePSObject value=null
-*** End of execution stack.
