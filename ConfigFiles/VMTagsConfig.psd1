@@ -43,9 +43,9 @@
         }
         
         PROD = @{
-            vCenterServer           =   "vcsa-prod.corp.local"
+            vCenterServer           =   "daisv0pp241.dir.ad.dla.mil"
             SSODomain               =   "DLA-Prod.local"
-            DefaultCredentialUser   =   "svc_vmware_automation@vsphere.local"
+            DefaultCredentialUser   =   "administrator@DLA-Prod.local"
             
             TagCategories = @{
                 App                 =   "vCenter-PROD-App-team"
