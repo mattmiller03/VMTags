@@ -1,13 +1,10 @@
-  // Debug: Log all input values
+  // Debug: Log input values
   System.log("=== DEBUG: Input Values ===");
   System.log("scriptPath: " + scriptPath);
   System.log("environment: " + environment);
-  System.log("vCenterServer: " + vCenterServer);
-  System.log("enableDebug: " + enableDebug);
-  System.log("enableDebug type: " + typeof enableDebug);
   System.log("===============================");
 
-  // Build the PowerShell command with parameters
+  // Build the PowerShell command with only environment parameter
   var psCommand = "& '" + scriptPath + "'";
 
   // Add mandatory Environment parameter
@@ -15,24 +12,8 @@
       psCommand += " -Environment '" + environment + "'";
       System.log("Added environment parameter: " + environment);
   } else {
-      System.log("WARNING: environment is null/undefined");
+      System.log("ERROR: environment is null/undefined");
       throw new Error("Environment parameter is required but not provided");
-  }
-
-  // Add optional parameters if provided
-  if (vCenterServer && vCenterServer.trim() !== "") {
-      psCommand += " -vCenterServer '" + vCenterServer + "'";
-      System.log("Added vCenterServer parameter: " + vCenterServer);
-  } else {
-      System.log("vCenterServer parameter not provided or empty");
-  }
-
-  // Handle the EnableDebug switch parameter - check for both boolean and string values
-  if (enableDebug === true || enableDebug === "true" || enableDebug === 1) {
-      psCommand += " -EnableDebug";
-      System.log("Added EnableDebug parameter");
-  } else {
-      System.log("EnableDebug not added - value: " + enableDebug + " (type: " + typeof enableDebug + ")");
   }
 
   System.log("Final PowerShell command: " + psCommand);
