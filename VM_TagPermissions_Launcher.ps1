@@ -624,7 +624,14 @@ function Get-VMCredentials {
     param()
     try {
         Write-Log "Collecting vCenter credentials..." -Level Info
-        
+
+        # Check for Aria Operations environment and force stored credentials
+        $isAriaExecution = $env:ARIA_EXECUTION -eq "1" -or $env:AUTOMATION_MODE -eq "ARIA_OPERATIONS" -or $env:ARIA_NO_CREDENTIAL_INJECTION -eq "1"
+        if ($isAriaExecution) {
+            Write-Log "Aria Operations execution detected - forcing use of stored credentials" -Level Info
+            $UseStoredCredentials = $true
+        }
+
         $credential = $null
         $useStoredCreds = $false
         
@@ -713,6 +720,15 @@ function Get-VMCredentials {
         
         # If we don't have valid stored credentials, prompt interactively
         if (-not $useStoredCreds) {
+            # Check if we're in Aria Operations mode - if so, exit cleanly instead of prompting
+            if ($isAriaExecution) {
+                $errorMsg = "Aria Operations execution detected but no stored credentials found. Cannot prompt interactively in automation mode."
+                Write-Log $errorMsg -Level Error
+                Write-Log "Exiting script with error code 2 (missing credentials)" -Level Error
+                Write-Log "Please run the script interactively first to store credentials: .\VM_TagPermissions_Launcher.ps1 -Environment $($script:Config.CurrentEnvironment) -UseStoredCredentials" -Level Error
+                exit 2
+            }
+
             Write-Host "`n" -NoNewline
             Write-Host "=== vCenter Authentication Required ===" -ForegroundColor Yellow
             Write-Host "Environment: $($script:Config.CurrentEnvironment)" -ForegroundColor Cyan
@@ -726,7 +742,55 @@ function Get-VMCredentials {
             }
             
             Write-Log "Credentials collected for user: $($credential.UserName)" -Level Success
-            
+        }
+
+        # Validate credentials and detect Aria service account injection
+        if ($credential) {
+            $username = $credential.UserName
+            Write-Log "Validating credential for user: $username" -Level Debug
+
+            # Detect common Aria Operations service account patterns
+            $ariaServiceAccountPatterns = @(
+                ".*aria.*svc.*",
+                ".*svc.*aria.*",
+                ".*vro.*svc.*",
+                ".*svc.*vro.*",
+                ".*orchestrator.*",
+                ".*automation.*svc.*",
+                ".*svc.*automation.*",
+                ".*vrops.*svc.*",
+                ".*svc.*vrops.*"
+            )
+
+            $isAriaServiceAccount = $false
+            foreach ($pattern in $ariaServiceAccountPatterns) {
+                if ($username -match $pattern) {
+                    $isAriaServiceAccount = $true
+                    Write-Log "Detected Aria Operations service account pattern: $pattern" -Level Warning
+                    break
+                }
+            }
+
+            # If Aria service account detected, reject and force stored credentials
+            if ($isAriaServiceAccount) {
+                Write-Log "Aria Operations service account detected: $username" -Level Error
+                Write-Log "Rejecting Aria-injected credentials and forcing use of stored credentials" -Level Error
+
+                if ($isAriaExecution) {
+                    $errorMsg = "Aria Operations injected service account credentials ($username) detected. Please ensure stored credentials are properly configured for this environment."
+                    Write-Log $errorMsg -Level Error
+                    Write-Log "Exiting script with error code 3 (invalid credentials)" -Level Error
+                    Write-Log "Please run the script interactively first to store proper vCenter credentials: .\VM_TagPermissions_Launcher.ps1 -Environment $($script:Config.CurrentEnvironment) -UseStoredCredentials" -Level Error
+                    exit 3
+                } else {
+                    Write-Log "Prompting for different credentials..." -Level Warning
+                    $credential = $null
+                    # This will cause the function to prompt again or fail
+                }
+            }
+        }
+
+        if ($credential) {
             # Ask user if they want to store credentials for future use
             if ($script:Config.Security -and $script:Config.Security.AllowStoredCredentials -ne $false) {
                 $envPolicy = $null
@@ -792,15 +856,29 @@ function Get-VMCredentials {
             }
         }
         
+        # Final validation - ensure we have valid credentials
         if (-not $credential) {
-            throw "vCenter credentials are required"
+            if ($isAriaExecution) {
+                Write-Log "No valid credentials obtained in Aria Operations mode" -Level Error
+                Write-Log "Exiting script with error code 4 (no credentials)" -Level Error
+                exit 4
+            } else {
+                throw "vCenter credentials are required"
+            }
         }
-        
+
         return $credential
     }
     catch {
         Write-Log "Failed to get credentials: $($_.Exception.Message)" -Level Error
-        throw
+
+        # In Aria mode, exit cleanly instead of throwing
+        if ($env:ARIA_EXECUTION -eq "1" -or $env:AUTOMATION_MODE -eq "ARIA_OPERATIONS" -or $env:ARIA_NO_CREDENTIAL_INJECTION -eq "1") {
+            Write-Log "Exiting script due to credential error in Aria Operations mode" -Level Error
+            exit 5
+        } else {
+            throw
+        }
     }
 }
 
