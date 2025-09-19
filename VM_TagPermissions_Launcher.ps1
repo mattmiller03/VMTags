@@ -1406,7 +1406,7 @@ function Start-ParallelVCenterExecution {
                 param($Server, $AppCsvPath, $OsCsvPath, $Environment, $CredentialPath, $MainScriptPath, $LogPath)
 
                 try {
-                    # Build arguments for main script
+                    # Build arguments for main script - Fix parameter name
                     $args = @(
                         '-vCenterServer', "`"$Server`""
                         '-AppPermissionsCsvPath', "`"$AppCsvPath`""
@@ -1416,19 +1416,43 @@ function Start-ParallelVCenterExecution {
                     )
 
                     if ($LogPath) {
-                        $args += '-LogDirectory'
+                        $args += '-LogDirectory'  # Correct parameter name for main script
                         $args += "`"$LogPath`""
                     }
 
-                    # Execute main script
-                    $process = Start-Process -FilePath "pwsh.exe" -ArgumentList @('-File', "`"$MainScriptPath`"") + $args -Wait -PassThru -WindowStyle Hidden
+                    # Determine PowerShell executable path
+                    $psExecutable = "powershell.exe"  # Default to Windows PowerShell for compatibility
+                    if ($PSVersionTable.PSVersion.Major -ge 6) {
+                        # Try to use PowerShell 7+ if available
+                        if (Get-Command "pwsh.exe" -ErrorAction SilentlyContinue) {
+                            $psExecutable = "pwsh.exe"
+                        }
+                    }
+
+                    # Create temp files to capture output
+                    $outputFile = [System.IO.Path]::GetTempFileName()
+                    $errorFile = [System.IO.Path]::GetTempFileName()
+
+                    # Execute main script with output capture
+                    $processArgs = @('-File', "`"$MainScriptPath`"") + $args
+                    $process = Start-Process -FilePath $psExecutable -ArgumentList $processArgs -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $outputFile -RedirectStandardError $errorFile -NoNewWindow
+
+                    # Read output and error files
+                    $standardOutput = if (Test-Path $outputFile) { Get-Content $outputFile -Raw } else { "" }
+                    $standardError = if (Test-Path $errorFile) { Get-Content $errorFile -Raw } else { "" }
+
+                    # Clean up temp files
+                    if (Test-Path $outputFile) { Remove-Item $outputFile -Force -ErrorAction SilentlyContinue }
+                    if (Test-Path $errorFile) { Remove-Item $errorFile -Force -ErrorAction SilentlyContinue }
 
                     return @{
                         Server = $Server
                         ExitCode = $process.ExitCode
                         Success = ($process.ExitCode -eq 0)
                         ExecutionTime = (Get-Date)
-                        Error = $null
+                        Error = if ($process.ExitCode -ne 0) { "Exit Code: $($process.ExitCode). Error: $standardError" } else { $null }
+                        Output = $standardOutput
+                        StandardError = $standardError
                     }
                 }
                 catch {
@@ -1437,7 +1461,9 @@ function Start-ParallelVCenterExecution {
                         ExitCode = -1
                         Success = $false
                         ExecutionTime = (Get-Date)
-                        Error = $_.Exception.Message
+                        Error = "Exception during execution: $($_.Exception.Message)"
+                        Output = ""
+                        StandardError = ""
                     }
                 }
             }
@@ -1491,7 +1517,16 @@ function Start-ParallelVCenterExecution {
             $results += $result
 
             $statusColor = if ($result.Success) { "Success" } else { "Warning" }
-            Write-Log "Execution completed for $($result.Server): $(if ($result.Success) { 'SUCCESS' } else { 'FAILED' }) (Duration: $($result.Duration.ToString('hh\:mm\:ss')))" -Level $statusColor
+            $statusMessage = if ($result.Success) { 'SUCCESS' } else { 'FAILED' }
+            Write-Log "Execution completed for $($result.Server): $statusMessage (Duration: $($result.Duration.ToString('hh\:mm\:ss')))" -Level $statusColor
+
+            # Log detailed error information for failed executions
+            if (-not $result.Success -and $result.Error) {
+                Write-Log "Error details for $($result.Server): $($result.Error)" -Level Error
+                if ($result.StandardError) {
+                    Write-Log "Standard Error output from $($result.Server): $($result.StandardError)" -Level Debug
+                }
+            }
         }
 
         # Summary
