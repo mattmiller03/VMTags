@@ -21,8 +21,17 @@ VMTags-v2.0 is a high-performance PowerShell automation system for managing vCen
 # Dry run mode for testing
 .\VM_TagPermissions_Launcher.ps1 -Environment DEV -DryRun
 
+# Hierarchical tag inheritance with testing
+.\Scripts\set-VMtagPermissions.ps1 -vCenterServer "vcenter.domain.com" -Environment "DEV" -EnableHierarchicalInheritance -InheritanceCategories "App,Function" -InheritanceDryRun
+
+# Multi-vCenter Enhanced Linked Mode execution
+.\Test-MultiVCenter.ps1 -Environment KLEB -TestConnectivity
+
 # Aria Operations integration
 .\Aria-VMTags-Wrapper.ps1 -Environment KLEB -EnableDebug
+
+# Automation mode for CI/CD pipelines
+.\VM_TagPermissions_Launcher.ps1 -Environment PROD -UseStoredCredentials -AutomationMode
 ```
 
 ### Credential Management
@@ -49,6 +58,12 @@ VMTags-v2.0 is a high-performance PowerShell automation system for managing vCen
 **Main Processing Engine:**
 - `Scripts/set-VMtagPermissions.ps1`: Core script with advanced parallel processing, thread-safe logging, and intelligent batch strategies
 - `Aria-VMTags-Wrapper.ps1`: Aria Operations integration wrapper for enterprise monitoring
+
+**Testing and Validation Scripts:**
+- `Test-MultiVCenter.ps1`: Enhanced Linked Mode multi-vCenter connectivity and configuration testing
+- `Test-HierarchicalInheritance.ps1`: Hierarchical tag inheritance validation and testing
+- `Test-AutomationMode.ps1`: Automation mode functionality testing for CI/CD integration
+- `Test-LauncherArgs.ps1`: Launcher parameter validation and configuration testing
 
 ### Parallel Processing Architecture
 
@@ -85,11 +100,13 @@ VMTags-v2.0 is a high-performance PowerShell automation system for managing vCen
 ### Data Processing Flow
 
 1. **Environment Detection**: Launcher loads environment-specific configuration from VMTagsConfig.psd1
-2. **Credential Management**: Retrieves stored credentials or prompts for new ones based on environment policy
-3. **Parallel Processing**: Distributes VMs across threads using selected batch strategy
-4. **Tag Assignment**: Applies OS tags based on guest OS pattern matching from CSV configurations
-5. **Permission Management**: Assigns application team permissions based on CSV mappings
-6. **Reporting**: Generates comprehensive CSV reports with performance metrics and error analysis
+2. **Multi-vCenter Support**: Detects Enhanced Linked Mode configuration and establishes appropriate connections
+3. **Credential Management**: Retrieves stored credentials or prompts for new ones based on environment policy
+4. **Hierarchical Inheritance**: (Optional) Processes tag inheritance from folders and resource pools
+5. **Parallel Processing**: Distributes VMs across threads using selected batch strategy
+6. **Tag Assignment**: Applies OS tags based on guest OS pattern matching from CSV configurations
+7. **Permission Management**: Assigns application team permissions based on CSV mappings
+8. **Reporting**: Generates comprehensive CSV reports with performance metrics and error analysis
 
 ### CSV Configuration Architecture
 
@@ -144,6 +161,10 @@ VMTags-v2.0/
 ├── VM_TagPermissions_Launcher.ps1     # Enhanced launcher with credential management
 ├── Scripts/set-VMtagPermissions.ps1   # Main processing engine with parallel capabilities
 ├── Aria-VMTags-Wrapper.ps1           # Aria Operations integration wrapper
+├── Test-MultiVCenter.ps1             # Multi-vCenter Enhanced Linked Mode testing
+├── Test-HierarchicalInheritance.ps1  # Hierarchical tag inheritance testing
+├── Test-AutomationMode.ps1           # Automation mode testing for CI/CD
+├── Test-LauncherArgs.ps1             # Launcher parameter validation testing
 ├── ConfigFiles/VMTagsConfig.psd1     # Centralized configuration management
 ├── Data/[ENV]/                       # Environment-specific CSV files (git-ignored)
 ├── Logs/                             # Execution logs (git-ignored)
@@ -206,6 +227,15 @@ VMTags-v2.0/
 
 ### Aria Operations Integration
 The system includes native Aria Operations integration through `Aria-VMTags-Wrapper.ps1` for enterprise monitoring and alerting. Logs are formatted in Aria-compatible JSON structure for seamless SIEM integration.
+
+### Enhanced Linked Mode Support
+Multi-vCenter environments with Enhanced Linked Mode are fully supported through configuration in `VMTagsConfig.psd1`. The system can connect to multiple vCenters in an Enhanced Linked Mode configuration while properly handling shared SSO domains and preventing duplicate VM processing.
+
+### Hierarchical Tag Inheritance
+Automatic tag inheritance from folder and resource pool hierarchies allows for simplified tag management at scale. VMs automatically inherit tags from their parent containers based on configurable category rules, reducing manual tag assignment overhead.
+
+### CI/CD and Automation Integration
+Automation mode support enables seamless integration with CI/CD pipelines, Aria Operations, and other automated execution contexts by bypassing interactive prompts and providing structured output for consumption by external systems.
 
 ### PowerCLI Requirements
 - VMware PowerCLI 13.0+ required

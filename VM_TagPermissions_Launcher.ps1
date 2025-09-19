@@ -632,9 +632,21 @@ function Get-VMCredentials {
             Write-Log "Attempting to retrieve stored credentials..." -Level Info
             
             try {
-                # Get credential store path
+                # Get credential store path - check multiple locations for backward compatibility
                 $credentialStorePath = if ($script:Config -and $script:Config.Security.CredentialStorePath) {
-                    $script:Config.Security.CredentialStorePath
+                    # Convert relative path to absolute if needed
+                    if ([System.IO.Path]::IsPathRooted($script:Config.Security.CredentialStorePath)) {
+                        $script:Config.Security.CredentialStorePath
+                    } else {
+                        Join-Path $PSScriptRoot $script:Config.Security.CredentialStorePath
+                    }
+                } elseif ($script:Config -and $script:Config.DefaultPaths.CredentialStorePath) {
+                    # Convert relative path to absolute if needed
+                    if ([System.IO.Path]::IsPathRooted($script:Config.DefaultPaths.CredentialStorePath)) {
+                        $script:Config.DefaultPaths.CredentialStorePath
+                    } else {
+                        Join-Path $PSScriptRoot $script:Config.DefaultPaths.CredentialStorePath
+                    }
                 } else {
                     Join-Path $env:USERPROFILE ".vmtags\credentials"
                 }
@@ -747,8 +759,21 @@ function Get-VMCredentials {
                     
                     if ($shouldStore) {
                         try {
+                            # Get credential store path - check multiple locations for backward compatibility
                             $credentialStorePath = if ($script:Config.Security.CredentialStorePath) {
-                                $script:Config.Security.CredentialStorePath
+                                # Convert relative path to absolute if needed
+                                if ([System.IO.Path]::IsPathRooted($script:Config.Security.CredentialStorePath)) {
+                                    $script:Config.Security.CredentialStorePath
+                                } else {
+                                    Join-Path $PSScriptRoot $script:Config.Security.CredentialStorePath
+                                }
+                            } elseif ($script:Config.DefaultPaths.CredentialStorePath) {
+                                # Convert relative path to absolute if needed
+                                if ([System.IO.Path]::IsPathRooted($script:Config.DefaultPaths.CredentialStorePath)) {
+                                    $script:Config.DefaultPaths.CredentialStorePath
+                                } else {
+                                    Join-Path $PSScriptRoot $script:Config.DefaultPaths.CredentialStorePath
+                                }
                             } else {
                                 Join-Path $env:USERPROFILE ".vmtags\credentials"
                             }

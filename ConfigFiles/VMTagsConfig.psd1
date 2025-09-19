@@ -257,7 +257,7 @@
             }
             KLEB = @{
                 AllowStoredCredentials = $true
-                AutoStoreCredentials = $false
+                AutoStoreCredentials = $true    # Fixed: Enable auto-store for KLEB environment
                 CredentialMaxAgeDays = 21
                 ValidateCredentials = $true
             }
