@@ -44,21 +44,34 @@ function Write-AriaLog {
         Timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss.fffZ"
         Level = $Level
         Source = $Category
-        Environment = $script:Environment
+        Environment = if ($script:Environment) { $script:Environment } else { "Unknown" }
         Message = $Message
         Machine = $env:COMPUTERNAME
         User = $env:USERNAME
         ProcessId = $PID
-        ScriptName = $MyInvocation.ScriptName
+        ScriptName = Split-Path -Leaf $MyInvocation.PSCommandPath
     }
     
     # Output for Aria Operations to parse
-    $jsonLog = $ariaLogEntry | ConvertTo-Json -Compress
-    Write-Host $jsonLog
+    try {
+        $jsonLog = $ariaLogEntry | ConvertTo-Json -Compress -ErrorAction Stop
+        Write-Host $jsonLog
+    }
+    catch {
+        # Fallback to simple logging if JSON conversion fails
+        Write-Host "[$Level] $Message"
+        Write-Warning "Aria JSON conversion failed: $($_.Exception.Message)"
+    }
     
     # Also write to Aria-specific log file
     try {
-        $ariaLogFile = "C:\Scripts\VMTags\Logs\Aria\AriaOperations_$script:Environment.log"
+        # Use dynamic log path instead of hardcoded path
+        $ariaLogPath = if ($script:AriaConfig -and $script:AriaConfig.LogPath) {
+            $script:AriaConfig.LogPath
+        } else {
+            Join-Path $PSScriptRoot "Logs\Aria"
+        }
+        $ariaLogFile = Join-Path $ariaLogPath "AriaOperations_$($script:Environment).log"
         $logLine = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [$Level] $Message"
         Add-Content -Path $ariaLogFile -Value $logLine -ErrorAction SilentlyContinue
     }
@@ -79,21 +92,29 @@ function Write-AriaResult {
     
     $ariaResult = @{
         Timestamp = Get-Date -Format "yyyy-MM-ddTHH:mm:ss.fffZ"
-        Environment = $script:Environment
+        Environment = if ($script:Environment) { $script:Environment } else { "Unknown" }
         ExecutionStatus = if ($Result.ExitCode -eq 0) { "SUCCESS" } else { "FAILED" }
-        ExitCode = $Result.ExitCode
-        ExecutionTime = $Result.ExecutionTime
+        ExitCode = if ($Result.ExitCode) { $Result.ExitCode } else { -1 }
+        ExecutionTime = if ($Result.ExecutionTime) { $Result.ExecutionTime.ToString() } else { "Unknown" }
         Machine = $env:COMPUTERNAME
         User = $env:USERNAME
         Details = @{
-            vCenterServer = $script:vCenterServer
-            ConfigPath = $script:ConfigPath
-            LauncherScript = $script:LauncherScript
+            vCenterServer = if ($script:vCenterServer) { $script:vCenterServer } else { "Default" }
+            ConfigPath = if ($script:AriaConfig.ConfigPath) { $script:AriaConfig.ConfigPath } else { "Unknown" }
+            LauncherScript = if ($script:AriaConfig.LauncherScript) { $script:AriaConfig.LauncherScript } else { "Unknown" }
         }
     }
     
     # Output structured result for Aria
-    Write-Host "ARIA_RESULT: $($ariaResult | ConvertTo-Json -Compress)"
+    try {
+        $jsonResult = $ariaResult | ConvertTo-Json -Compress -ErrorAction Stop
+        Write-Host "ARIA_RESULT: $jsonResult"
+    }
+    catch {
+        # Fallback to simple result if JSON conversion fails
+        Write-Host "ARIA_RESULT: Status=$($ariaResult.ExecutionStatus), ExitCode=$($ariaResult.ExitCode)"
+        Write-Warning "Aria result JSON conversion failed: $($_.Exception.Message)"
+    }
 }
 #endregion
 
@@ -104,8 +125,8 @@ $script:Environment = $Environment
 $scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 
 # Aria Operations specific settings
-$AriaConfig = @{
-    LauncherScript = Join-Path $scriptRoot "VM_TagPermissions_Launcher_v2.ps1"
+$script:AriaConfig = @{
+    LauncherScript = Join-Path $scriptRoot "VM_TagPermissions_Launcher.ps1"  # Fixed: was _v2, should be current filename
     ConfigPath = Join-Path $scriptRoot "ConfigFiles"
     LogPath = Join-Path $scriptRoot "Logs\Aria"
     TempPath = Join-Path $scriptRoot "Temp"
@@ -121,23 +142,23 @@ try {
     }
     
     # Ensure required directories exist
-    @($AriaConfig.LogPath, $AriaConfig.TempPath) | ForEach-Object {
+    @($script:AriaConfig.LogPath, $script:AriaConfig.TempPath) | ForEach-Object {
         if (-not (Test-Path $_)) {
             New-Item -Path $_ -ItemType Directory -Force | Out-Null
             Write-AriaLog "Created directory: $_" -Level "INFO"
         }
     }
-    
+
     # Check if launcher script exists
-    if (-not (Test-Path $AriaConfig.LauncherScript)) {
-        Write-AriaLog "Launcher script not found: $($AriaConfig.LauncherScript)" -Level "ERROR"
-        throw "Launcher script not found: $($AriaConfig.LauncherScript)"
+    if (-not (Test-Path $script:AriaConfig.LauncherScript)) {
+        Write-AriaLog "Launcher script not found: $($script:AriaConfig.LauncherScript)" -Level "ERROR"
+        throw "Launcher script not found: $($script:AriaConfig.LauncherScript)"
     }
     
     # Build launcher arguments using hashtable for proper splatting
     $launcherArgs = @{
         Environment = $Environment
-        ConfigPath = $AriaConfig.ConfigPath
+        ConfigPath = $script:AriaConfig.ConfigPath
         UseStoredCredentials = $true  # Always use stored credentials in Aria Operations
         AutomationMode = $true  # Enable automation mode for Aria Operations
     }
@@ -177,7 +198,7 @@ try {
     }
 
     # Execute the launcher script with proper splatting
-    $result = & $AriaConfig.LauncherScript @launcherArgs
+    $result = & $script:AriaConfig.LauncherScript @launcherArgs
     
     # Process results
     if ($result -and $result.ExitCode -ne $null) {
