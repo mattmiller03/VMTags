@@ -71,7 +71,9 @@ try {
 
     # Feature flag check
     $multiVCenterEnabled = $configData.FeatureFlags.EnableMultiVCenterSupport
-    Write-Host "`nMulti-vCenter Feature Flag: $($if ($multiVCenterEnabled) { 'ENABLED' } else { 'DISABLED' })" -ForegroundColor $(if ($multiVCenterEnabled) { 'Green' } else { 'Red' })
+    $flagStatus = if ($multiVCenterEnabled) { 'ENABLED' } else { 'DISABLED' }
+    $flagColor = if ($multiVCenterEnabled) { 'Green' } else { 'Red' }
+    Write-Host "`nMulti-vCenter Feature Flag: $flagStatus" -ForegroundColor $flagColor
 
     if ($TestConnectionsOnly -and $envConfig.vCenterServers) {
         Write-Host "`n=== Network Connectivity Tests ===" -ForegroundColor Yellow
