@@ -1435,7 +1435,7 @@ function Start-ParallelVCenterExecution {
 
                     # Execute main script with output capture
                     $processArgs = @('-File', "`"$MainScriptPath`"") + $args
-                    $process = Start-Process -FilePath $psExecutable -ArgumentList $processArgs -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $outputFile -RedirectStandardError $errorFile -NoNewWindow
+                    $process = Start-Process -FilePath $psExecutable -ArgumentList $processArgs -Wait -PassThru -WindowStyle Hidden -RedirectStandardOutput $outputFile -RedirectStandardError $errorFile
 
                     # Read output and error files
                     $standardOutput = if (Test-Path $outputFile) { Get-Content $outputFile -Raw } else { "" }
