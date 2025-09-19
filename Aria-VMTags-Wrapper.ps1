@@ -138,6 +138,7 @@ try {
     $launcherArgs = @{
         Environment = $Environment
         ConfigPath = $AriaConfig.ConfigPath
+        UseStoredCredentials = $true  # Always use stored credentials in Aria Operations
     }
 
     if ($vCenterServer) {
@@ -151,6 +152,26 @@ try {
     # Log the command being executed
     $argString = ($launcherArgs.GetEnumerator() | ForEach-Object { "-$($_.Key) $($_.Value)" }) -join ' '
     Write-AriaLog "Launching VM Tags automation with args: $argString" -Level "INFO"
+
+    # Set environment variables to suppress interactive prompts
+    $env:AUTOMATION_MODE = "ARIA_OPERATIONS"
+    $env:NO_PAUSE = "1"
+
+    # Ensure we're running non-interactively
+    $env:POWERSHELL_TELEMETRY_OPTOUT = "1"
+
+    # Override functions that might cause interactive prompts
+    function Wait-ForUserInput {
+        param([string]$Message = "Press any key to exit...")
+        Write-AriaLog "Skipping user interaction in Aria Operations: $Message" -Level "INFO"
+        # Do nothing - just return immediately
+    }
+
+    function Read-Host {
+        param([string]$Prompt)
+        Write-AriaLog "Skipping Read-Host prompt in Aria Operations: $Prompt" -Level "INFO"
+        return "N"  # Default to "No" for any yes/no prompts
+    }
 
     # Execute the launcher script with proper splatting
     $result = & $AriaConfig.LauncherScript @launcherArgs
