@@ -139,6 +139,7 @@ try {
         Environment = $Environment
         ConfigPath = $AriaConfig.ConfigPath
         UseStoredCredentials = $true  # Always use stored credentials in Aria Operations
+        AutomationMode = $true  # Enable automation mode for Aria Operations
     }
 
     if ($vCenterServer) {
@@ -156,9 +157,11 @@ try {
     # Set environment variables to suppress interactive prompts
     $env:AUTOMATION_MODE = "ARIA_OPERATIONS"
     $env:NO_PAUSE = "1"
+    $env:ARIA_EXECUTION = "1"
 
     # Ensure we're running non-interactively
     $env:POWERSHELL_TELEMETRY_OPTOUT = "1"
+    $env:POWERSHELL_INTERACTIVE = "0"
 
     # Override functions that might cause interactive prompts
     function Wait-ForUserInput {

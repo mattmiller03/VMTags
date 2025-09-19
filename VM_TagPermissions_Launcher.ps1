@@ -57,6 +57,11 @@
     Remove ALL stored credentials from the credential store after confirmation.
     This is a destructive operation that requires typing 'YES' to confirm.
     Use this for security cleanup or when troubleshooting credential issues.
+
+.PARAMETER AutomationMode
+    Enable automation mode to bypass all user prompts and waits.
+    Useful for Aria Operations, CI/CD pipelines, or other automated execution contexts.
+    When enabled, all Read-Host prompts return default values and Wait-ForUserInput is skipped.
     
 .EXAMPLE
     .\VM_TagPermissions_Launcher_v2.ps1 -Environment "PROD"
@@ -102,9 +107,15 @@
     
 .EXAMPLE
     .\VM_TagPermissions_Launcher_v2.ps1 -Environment "KLEB" -ConfigPath "C:\CustomConfigs\" -UseStoredCredentials -ForceDebug
-    
+
     Execute against KLEB environment using a custom configuration directory,
     stored credentials, and debug logging enabled.
+
+.EXAMPLE
+    .\VM_TagPermissions_Launcher_v2.ps1 -Environment "PROD" -UseStoredCredentials -AutomationMode
+
+    Execute against PROD environment with stored credentials in full automation mode.
+    All user prompts and waits will be bypassed. Ideal for Aria Operations or CI/CD execution.
     
 .NOTES
     Name: VM_TagPermissions_Launcher_v2.ps1
@@ -195,12 +206,22 @@ param(
     [switch]$ClearAllCredentials,
 
     [Parameter(Mandatory = $false, HelpMessage = "Skip network connectivity tests (for development)")]
-    [switch]$SkipNetworkTests
+    [switch]$SkipNetworkTests,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Enable automation mode (bypass all user prompts)")]
+    [switch]$AutomationMode
 )
 
 #region Initialization
 # CHANGED: Set ErrorActionPreference to Continue instead of Stop to prevent immediate termination
 $ErrorActionPreference = "Continue"
+
+# Set automation mode environment variables if requested
+if ($AutomationMode) {
+    $env:AUTOMATION_MODE = "SCRIPT_PARAMETER"
+    $env:NO_PAUSE = "1"
+    $env:POWERSHELL_INTERACTIVE = "0"
+}
 $VerbosePreference = if ($ForceDebug) { "Continue" } else { "SilentlyContinue" }
 
 # Global variables - Initialize early
@@ -720,7 +741,7 @@ function Get-VMCredentials {
                         $shouldStore = $true
                         Write-Log "Auto-storing credentials as configured for $($script:Config.CurrentEnvironment) environment" -Level Info
                     } else {
-                        $response = Read-Host "Would you like to store these credentials securely for future use? (Y/N)"
+                        $response = Get-UserInput -Prompt "Would you like to store these credentials securely for future use? (Y/N)" -AutomationValue "N"
                         $shouldStore = $response -match '^[Yy]'
                     }
                     
@@ -2014,7 +2035,15 @@ function Write-ExecutionSummary {
 
 function Wait-ForUserInput {
     param([string]$Message = "Press any key to exit...")
-    
+
+    # Check if running in Aria Operations or automation mode
+    if ($env:AUTOMATION_MODE -eq "ARIA_OPERATIONS" -or $env:NO_PAUSE -eq "1" -or $env:CI -eq "true" -or
+        $env:ARIA_EXECUTION -eq "1" -or $env:POWERSHELL_INTERACTIVE -eq "0" -or
+        $env:JENKINS_URL -or $env:GITHUB_ACTIONS -or $env:TF_BUILD) {
+        Write-Host "`n[AUTOMATION MODE] Skipping user input: $Message" -ForegroundColor Gray
+        return
+    }
+
     Write-Host "`n$Message" -ForegroundColor Yellow
     try {
         $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
@@ -2022,6 +2051,30 @@ function Wait-ForUserInput {
     catch {
         # If ReadKey fails, use Read-Host as fallback
         Read-Host "Press Enter to continue"
+    }
+}
+
+function Get-UserInput {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Prompt,
+        [string]$DefaultValue = "",
+        [string]$AutomationValue = $DefaultValue
+    )
+
+    # Check if running in Aria Operations or automation mode
+    if ($env:AUTOMATION_MODE -eq "ARIA_OPERATIONS" -or $env:NO_PAUSE -eq "1" -or $env:CI -eq "true" -or
+        $env:ARIA_EXECUTION -eq "1" -or $env:POWERSHELL_INTERACTIVE -eq "0" -or
+        $env:JENKINS_URL -or $env:GITHUB_ACTIONS -or $env:TF_BUILD) {
+        Write-Host "`n[AUTOMATION MODE] Auto-responding to prompt '$Prompt' with: $AutomationValue" -ForegroundColor Gray
+        return $AutomationValue
+    }
+
+    # Normal interactive mode
+    if ($DefaultValue) {
+        return Read-Host "$Prompt (default: $DefaultValue)"
+    } else {
+        return Read-Host $Prompt
     }
 }
 #endregion
@@ -2066,7 +2119,7 @@ if ($ClearAllCredentials) {
         return
     }
     
-    $confirm = Read-Host "Are you sure you want to remove ALL stored credentials? (Type 'YES' to confirm)"
+    $confirm = Get-UserInput -Prompt "Are you sure you want to remove ALL stored credentials? (Type 'YES' to confirm)" -AutomationValue "NO"
     if ($confirm -eq 'YES') {
         $credentialStorePath = if ($script:Config -and $script:Config.Security.CredentialStorePath) {
             $script:Config.Security.CredentialStorePath
@@ -2269,7 +2322,7 @@ try {
         Write-Host "Cleaning up logs (keeping most recent $($maxFiles) files per environment)..." -ForegroundColor Yellow
         
         # Ask user if they want to clean current environment only or all environments
-        $scope = Read-Host "Clean logs for current environment only ($($Environment)) or All environments? (C/A)"
+        $scope = Get-UserInput -Prompt "Clean logs for current environment only ($($Environment)) or All environments? (C/A)" -AutomationValue "C"
         
         if ($scope -eq 'A' -or $scope -eq 'a') {
             Remove-OldLogFilesAllEnvironments -MaxLogFiles $maxFiles -Force
