@@ -397,14 +397,15 @@
         EnableAutomaticFailover = $true
         FailoverThresholdSeconds = 60
 
-        # Global inventory aggregation
+        # Global inventory aggregation and deduplication
         AggregateInventoryAcrossVCenters = $true
+        EnableVMDeduplication = $true   # Prevent processing same VM multiple times across vCenters
 
         # Parallel processing across vCenters
-        # WARNING: Only enable this for NON-Enhanced Linked Mode scenarios
-        # In Enhanced Linked Mode, all vCenters share the same inventory via SSO
-        # Running against multiple vCenters would process the same VMs multiple times
-        EnableParallelVCenterProcessing = $false  # Set to true ONLY for independent vCenter operations
+        # NOTE: In some Enhanced Linked Mode configurations, VMs may only be fully visible
+        # when directly connected to their managing vCenter, despite shared SSO
+        # Enable this if VMs on secondary vCenters are not being discovered
+        EnableParallelVCenterProcessing = $true   # Enable to process all vCenters individually
         MaxParallelVCenterConnections = 2
 
         # Enhanced Linked Mode validation

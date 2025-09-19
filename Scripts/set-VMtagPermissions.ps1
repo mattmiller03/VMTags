@@ -642,6 +642,42 @@ function Process-HierarchicalTagInheritance {
         $allVMs = Get-VM | Where-Object Name -notmatch '^(vCLS|VLC|stCtlVM)'
         Write-Log "Processing $($allVMs.Count) VMs for hierarchical tag inheritance" "INFO"
 
+        # Enhanced Linked Mode deduplication for hierarchical inheritance
+        $processedVMsFile = Join-Path $LogPath "ProcessedVMs_Inheritance_$($Environment)_$(Get-Date -Format 'yyyyMMdd').json"
+        $processedInheritanceVMs = @{}
+
+        # Load existing processed VMs if file exists
+        if (Test-Path $processedVMsFile) {
+            try {
+                $existingData = Get-Content $processedVMsFile -Raw | ConvertFrom-Json
+                if ($existingData -and $existingData.PSObject.Properties) {
+                    foreach ($property in $existingData.PSObject.Properties) {
+                        $processedInheritanceVMs[$property.Name] = $property.Value
+                    }
+                }
+                Write-Log "Loaded $($processedInheritanceVMs.Count) previously processed VMs from inheritance deduplication file" "DEBUG"
+            }
+            catch {
+                Write-Log "Could not load inheritance deduplication file, starting fresh: $($_.Exception.Message)" "DEBUG"
+                $processedInheritanceVMs = @{}
+            }
+        }
+
+        # Filter out VMs that have already been processed for inheritance today
+        $originalInheritanceCount = $allVMs.Count
+        $allVMs = $allVMs | Where-Object {
+            $vmKey = "$($_.Name)|$($_.Id)"
+            if ($processedInheritanceVMs.ContainsKey($vmKey)) {
+                Write-Log "Skipping VM '$($_.Name)' inheritance - already processed by vCenter '$($processedInheritanceVMs[$vmKey])'" "DEBUG"
+                return $false
+            }
+            return $true
+        }
+
+        if ($originalInheritanceCount -ne $allVMs.Count) {
+            Write-Log "Filtered out $($originalInheritanceCount - $allVMs.Count) already-processed VMs for inheritance. Processing $($allVMs.Count) remaining VMs." "INFO"
+        }
+
         $vmProcessed = 0
         $tagsInherited = 0
         $tagsSkipped = 0
@@ -711,6 +747,21 @@ function Process-HierarchicalTagInheritance {
             # Progress reporting
             if ($vmProcessed % 50 -eq 0) {
                 Write-Log "Hierarchical inheritance progress: $vmProcessed/$($allVMs.Count) VMs processed" "INFO"
+            }
+
+            # Track processed VM for inheritance deduplication across vCenter connections
+            $vmKey = "$($vm.Name)|$($vm.Id)"
+            $processedInheritanceVMs[$vmKey] = $vCenterServer
+        }
+
+        # Save processed VMs to inheritance deduplication file
+        if ($processedInheritanceVMs.Count -gt 0) {
+            try {
+                $processedInheritanceVMs | ConvertTo-Json | Set-Content $processedVMsFile -Force
+                Write-Log "Saved $($processedInheritanceVMs.Count) processed VMs to inheritance deduplication file" "DEBUG"
+            }
+            catch {
+                Write-Log "Could not save inheritance deduplication file: $($_.Exception.Message)" "WARN"
             }
         }
 
@@ -1543,6 +1594,42 @@ try {
     Write-Log "Getting all VMs for OS processing (excluding vCLS*, VLC*, stCtlVM* VMs)..." "DEBUG"
     $allVms = Get-VM | Where-Object Name -notmatch '^(vCLS|VLC|stCtlVM)'
     Write-Log "Found $($allVms.Count) VMs to check for OS patterns (after filtering system VMs)." "INFO"
+
+    # Enhanced Linked Mode deduplication: Create a tracking file for processed VMs across vCenter connections
+    $processedVMsFile = Join-Path $LogPath "ProcessedVMs_$($Environment)_$(Get-Date -Format 'yyyyMMdd').json"
+    $processedVMs = @{}
+
+    # Load existing processed VMs if file exists (for multi-vCenter scenarios)
+    if (Test-Path $processedVMsFile) {
+        try {
+            $existingData = Get-Content $processedVMsFile -Raw | ConvertFrom-Json
+            if ($existingData -and $existingData.PSObject.Properties) {
+                foreach ($property in $existingData.PSObject.Properties) {
+                    $processedVMs[$property.Name] = $property.Value
+                }
+            }
+            Write-Log "Loaded $($processedVMs.Count) previously processed VMs from deduplication file" "DEBUG"
+        }
+        catch {
+            Write-Log "Could not load VM deduplication file, starting fresh: $($_.Exception.Message)" "DEBUG"
+            $processedVMs = @{}
+        }
+    }
+
+    # Filter out VMs that have already been processed by this environment today
+    $originalCount = $allVms.Count
+    $allVms = $allVms | Where-Object {
+        $vmKey = "$($_.Name)|$($_.Id)"  # Use Name and Id for uniqueness
+        if ($processedVMs.ContainsKey($vmKey)) {
+            Write-Log "Skipping VM '$($_.Name)' - already processed by vCenter '$($processedVMs[$vmKey])'" "DEBUG"
+            return $false
+        }
+        return $true
+    }
+
+    if ($originalCount -ne $allVms.Count) {
+        Write-Log "Filtered out $($originalCount - $allVms.Count) already-processed VMs. Processing $($allVms.Count) remaining VMs." "INFO"
+    }
     
     $osProcessedCount = 0
     $osSkippedCount = 0
@@ -1693,8 +1780,23 @@ try {
         if ($osProcessedCount % 25 -eq 0) {
             Write-Log "OS processing progress: $osProcessedCount/$($allVms.Count) VMs (Tagged: $osTaggedCount, Permissions: $osPermissionCount, Skipped: $osSkippedCount)" "INFO"
         }
+
+        # Track processed VM for deduplication across vCenter connections
+        $vmKey = "$($vm.Name)|$($vm.Id)"
+        $processedVMs[$vmKey] = $vCenterServer
     }
-    
+
+    # Save processed VMs to deduplication file for multi-vCenter scenarios
+    if ($processedVMs.Count -gt 0) {
+        try {
+            $processedVMs | ConvertTo-Json | Set-Content $processedVMsFile -Force
+            Write-Log "Saved $($processedVMs.Count) processed VMs to deduplication file for multi-vCenter tracking" "DEBUG"
+        }
+        catch {
+            Write-Log "Could not save VM deduplication file: $($_.Exception.Message)" "WARN"
+        }
+    }
+
     Write-Log "OS Processing Complete - Total VMs: $($allVms.Count), Processed: $osProcessedCount, Tagged: $osTaggedCount, Permissions Assigned: $osPermissionCount, Skipped: $osSkippedCount" "INFO"
     
     # --- Permission Analysis ---
