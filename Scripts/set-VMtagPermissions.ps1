@@ -31,6 +31,16 @@
     Specifies the operational environment (e.g., DEV, PROD). This determines which tag categories are used.
 .PARAMETER EnableScriptDebug
     A switch parameter to enable verbose debug-level logging.
+.PARAMETER EnableHierarchicalInheritance
+    Enable automatic tag inheritance from parent containers (folders and resource pools).
+    When enabled, VMs will automatically inherit tags from their parent folder hierarchy
+    and resource pool hierarchy. This allows for easier tag management at scale.
+.PARAMETER InheritanceCategories
+    Comma-separated list of tag categories to inherit from parent containers.
+    Default: Inherits App category tags only. Example: "App,Function,Custom"
+.PARAMETER InheritanceDryRun
+    Run inheritance in dry-run mode to see what tags would be inherited without making changes.
+    Useful for testing and validation before applying inheritance rules.
 .EXAMPLE
     # Execute for the PROD environment using separate CSV files.
     $cred = Get-Credential
@@ -38,6 +48,22 @@
         -AppPermissionsCsvPath 'C:\vCenter\App-Permissions.csv' `
         -OsMappingCsvPath 'C:\vCenter\OS-Mappings.csv' `
         -Environment 'PROD' -EnableScriptDebug
+
+.EXAMPLE
+    # Execute with hierarchical tag inheritance enabled
+    $cred = Get-Credential
+    .\Set-vCenterObjects_Tag_Assigments.ps1 -vCenterServer 'vcsa01.corp.local' -Credential $cred `
+        -AppPermissionsCsvPath 'C:\vCenter\App-Permissions.csv' `
+        -OsMappingCsvPath 'C:\vCenter\OS-Mappings.csv' `
+        -Environment 'PROD' -EnableHierarchicalInheritance -InheritanceCategories "App,Function"
+
+.EXAMPLE
+    # Test hierarchical inheritance without making changes
+    $cred = Get-Credential
+    .\Set-vCenterObjects_Tag_Assigments.ps1 -vCenterServer 'vcsa01.corp.local' -Credential $cred `
+        -AppPermissionsCsvPath 'C:\vCenter\App-Permissions.csv' `
+        -OsMappingCsvPath 'C:\vCenter\OS-Mappings.csv' `
+        -Environment 'DEV' -EnableHierarchicalInheritance -InheritanceDryRun
 .NOTES
     REQUIREMENTS:
     - VMware PowerCLI module v12 or higher must be installed.
@@ -77,7 +103,16 @@ Param(
     
     [Parameter(Mandatory = $false, HelpMessage = "Batch size for VM processing (default: 50)")]
     [ValidateRange(10, 500)]
-    [int]$BatchSize = 50
+    [int]$BatchSize = 50,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Enable hierarchical tag inheritance from folders and resource pools")]
+    [switch]$EnableHierarchicalInheritance,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Comma-separated list of tag categories to inherit (default: App tags only)")]
+    [string]$InheritanceCategories = "",
+
+    [Parameter(Mandatory = $false, HelpMessage = "Dry run mode for inheritance - show what would be inherited without making changes")]
+    [switch]$InheritanceDryRun
 )
 
 #region A) Credential Loading and Configs
@@ -495,6 +530,206 @@ function Test-VMOSDetection {
         Write-Log "  Guest ID: $($osInfo.GuestID)" "INFO"
         Write-Log "  Has OS Info: $($osInfo.HasOSInfo)" "INFO"
         Write-Log "  ---" "INFO"
+    }
+}
+
+function Get-ParentContainerTags {
+    <#
+    .SYNOPSIS
+        Gets all tags from parent containers (folders and resource pools) of a VM
+    .PARAMETER VM
+        The virtual machine to check
+    .PARAMETER TagCategories
+        Array of tag category names to inherit (e.g., @("App", "Function"))
+    .RETURNS
+        Array of tags that should be inherited from parent containers
+    #>
+    param(
+        [VMware.VimAutomation.ViCore.Types.V1.Inventory.VirtualMachine]$VM,
+        [string[]]$TagCategories = @()
+    )
+
+    try {
+        $inheritableTags = @()
+
+        # Get VM's folder hierarchy
+        $vmFolder = $VM.Folder
+        $folders = @()
+
+        # Walk up the folder tree to root
+        $currentFolder = $vmFolder
+        while ($currentFolder -and $currentFolder.Name -ne "vm") {
+            $folders += $currentFolder
+            $currentFolder = Get-Folder -Id $currentFolder.ParentId -ErrorAction SilentlyContinue
+        }
+
+        # Check tags on each folder in hierarchy
+        foreach ($folder in $folders) {
+            $folderTags = Get-TagAssignment -Entity $folder -ErrorAction SilentlyContinue
+            foreach ($tagAssignment in $folderTags) {
+                $tag = $tagAssignment.Tag
+                # Only inherit specified categories
+                if ($TagCategories.Count -eq 0 -or $TagCategories -contains $tag.Category.Name) {
+                    $inheritableTags += @{
+                        Tag = $tag
+                        Source = "Folder"
+                        SourceName = $folder.Name
+                        SourcePath = $folder.ExtensionData.Summary.FolderPath
+                    }
+                }
+            }
+        }
+
+        # Get VM's resource pool hierarchy
+        $vmResourcePool = $VM.ResourcePool
+        $resourcePools = @()
+
+        # Walk up the resource pool tree
+        $currentRP = $vmResourcePool
+        while ($currentRP -and $currentRP.Name -ne "Resources") {
+            $resourcePools += $currentRP
+            $currentRP = Get-ResourcePool -Id $currentRP.ParentId -ErrorAction SilentlyContinue
+        }
+
+        # Check tags on each resource pool in hierarchy
+        foreach ($rp in $resourcePools) {
+            $rpTags = Get-TagAssignment -Entity $rp -ErrorAction SilentlyContinue
+            foreach ($tagAssignment in $rpTags) {
+                $tag = $tagAssignment.Tag
+                # Only inherit specified categories
+                if ($TagCategories.Count -eq 0 -or $TagCategories -contains $tag.Category.Name) {
+                    $inheritableTags += @{
+                        Tag = $tag
+                        Source = "ResourcePool"
+                        SourceName = $rp.Name
+                        SourcePath = $rp.ExtensionData.Summary.Config.MemoryAllocation.Limit
+                    }
+                }
+            }
+        }
+
+        return $inheritableTags
+    }
+    catch {
+        Write-Log "Error getting parent container tags for VM '$($VM.Name)': $_" "WARN"
+        return @()
+    }
+}
+
+function Process-HierarchicalTagInheritance {
+    <#
+    .SYNOPSIS
+        Processes hierarchical tag inheritance for all VMs
+    .PARAMETER TagCategories
+        Array of tag category names to inherit
+    .PARAMETER DryRun
+        If true, only reports what would be done without making changes
+    #>
+    param(
+        [string[]]$TagCategories = @(),
+        [switch]$DryRun = $false
+    )
+
+    try {
+        Write-Log "=== Processing Hierarchical Tag Inheritance ===" "INFO"
+        Write-Log "Inheritable categories: $($TagCategories -join ', ')" "INFO"
+
+        if ($DryRun) {
+            Write-Log "DRY RUN MODE: No changes will be made" "INFO"
+        }
+
+        # Get all VMs (excluding system VMs)
+        $allVMs = Get-VM | Where-Object Name -notmatch '^(vCLS|VLC|stCtlVM)'
+        Write-Log "Processing $($allVMs.Count) VMs for hierarchical tag inheritance" "INFO"
+
+        $vmProcessed = 0
+        $tagsInherited = 0
+        $tagsSkipped = 0
+        $errors = 0
+
+        foreach ($vm in $allVMs) {
+            $vmProcessed++
+
+            try {
+                # Get current VM tags
+                $currentVMTags = Get-TagAssignment -Entity $vm -ErrorAction SilentlyContinue | ForEach-Object { $_.Tag }
+
+                # Get inheritable tags from parent containers
+                $inheritableTags = Get-ParentContainerTags -VM $vm -TagCategories $TagCategories
+
+                if ($inheritableTags.Count -eq 0) {
+                    Write-Log "VM '$($vm.Name)': No inheritable tags found in parent containers" "DEBUG"
+                    continue
+                }
+
+                # Process each inheritable tag
+                foreach ($inheritableTag in $inheritableTags) {
+                    $tag = $inheritableTag.Tag
+                    $source = $inheritableTag.Source
+                    $sourceName = $inheritableTag.SourceName
+
+                    # Check if VM already has this tag
+                    $existingTag = $currentVMTags | Where-Object { $_.Id -eq $tag.Id }
+
+                    if ($existingTag) {
+                        Write-Log "VM '$($vm.Name)': Already has tag '$($tag.Name)' - skipping inheritance" "DEBUG"
+                        $tagsSkipped++
+                        continue
+                    }
+
+                    # Check if VM already has a different tag in the same category
+                    $existingCategoryTag = $currentVMTags | Where-Object { $_.Category.Id -eq $tag.Category.Id }
+
+                    if ($existingCategoryTag) {
+                        Write-Log "VM '$($vm.Name)': Already has tag '$($existingCategoryTag.Name)' in category '$($tag.Category.Name)' - skipping inheritance of '$($tag.Name)'" "DEBUG"
+                        $tagsSkipped++
+                        continue
+                    }
+
+                    # Apply the inherited tag
+                    if (-not $DryRun) {
+                        try {
+                            New-TagAssignment -Tag $tag -Entity $vm -ErrorAction Stop
+                            Write-Log "VM '$($vm.Name)': Inherited tag '$($tag.Name)' from $source '$($sourceName)'" "INFO"
+                            $tagsInherited++
+                        }
+                        catch {
+                            Write-Log "VM '$($vm.Name)': Failed to inherit tag '$($tag.Name)' from $source '$($sourceName)': $_" "ERROR"
+                            $errors++
+                        }
+                    } else {
+                        Write-Log "VM '$($vm.Name)': WOULD inherit tag '$($tag.Name)' from $source '$($sourceName)'" "INFO"
+                        $tagsInherited++
+                    }
+                }
+            }
+            catch {
+                Write-Log "Error processing hierarchical inheritance for VM '$($vm.Name)': $_" "ERROR"
+                $errors++
+            }
+
+            # Progress reporting
+            if ($vmProcessed % 50 -eq 0) {
+                Write-Log "Hierarchical inheritance progress: $vmProcessed/$($allVMs.Count) VMs processed" "INFO"
+            }
+        }
+
+        Write-Log "Hierarchical Tag Inheritance Summary:" "INFO"
+        Write-Log "  VMs Processed: $vmProcessed" "INFO"
+        Write-Log "  Tags Inherited: $tagsInherited" "INFO"
+        Write-Log "  Tags Skipped: $tagsSkipped" "INFO"
+        Write-Log "  Errors: $errors" "INFO"
+
+        return @{
+            VMsProcessed = $vmProcessed
+            TagsInherited = $tagsInherited
+            TagsSkipped = $tagsSkipped
+            Errors = $errors
+        }
+    }
+    catch {
+        Write-Log "Critical error in hierarchical tag inheritance processing: $_" "ERROR"
+        throw
     }
 }
 
@@ -1152,7 +1387,51 @@ try {
     }
     
     Write-Log "Tag categories verified/created successfully." "INFO"
-    
+
+    # --- Hierarchical Tag Inheritance (Optional) ---
+    if ($EnableHierarchicalInheritance) {
+        Write-Log "Hierarchical tag inheritance is ENABLED" "INFO"
+
+        # Determine which categories to inherit
+        $categoriesToInherit = @()
+        if ([string]::IsNullOrWhiteSpace($InheritanceCategories)) {
+            # Default: inherit only App category tags
+            $categoriesToInherit = @($AppCategoryName)
+            Write-Log "Using default inheritance categories: App tags only" "INFO"
+        } else {
+            # Parse comma-separated list
+            $categoriesToInherit = $InheritanceCategories.Split(',') | ForEach-Object { $_.Trim() } | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+            Write-Log "Using custom inheritance categories: $($categoriesToInherit -join ', ')" "INFO"
+        }
+
+        # Process hierarchical inheritance
+        try {
+            $inheritanceResult = Process-HierarchicalTagInheritance -TagCategories $categoriesToInherit -DryRun:$InheritanceDryRun
+
+            # Update execution summary with inheritance statistics
+            $script:ExecutionSummary.HierarchicalInheritance = @{
+                Enabled = $true
+                VMsProcessed = $inheritanceResult.VMsProcessed
+                TagsInherited = $inheritanceResult.TagsInherited
+                TagsSkipped = $inheritanceResult.TagsSkipped
+                Errors = $inheritanceResult.Errors
+                Categories = $categoriesToInherit
+                DryRun = $InheritanceDryRun.IsPresent
+            }
+
+            Write-Log "Hierarchical tag inheritance completed successfully" "INFO"
+        }
+        catch {
+            Write-Log "Error during hierarchical tag inheritance: $_" "ERROR"
+            $script:ExecutionSummary.ErrorsEncountered++
+        }
+    } else {
+        Write-Log "Hierarchical tag inheritance is DISABLED" "INFO"
+        $script:ExecutionSummary.HierarchicalInheritance = @{
+            Enabled = $false
+        }
+    }
+
     # --- Processing Part 1: Application Permissions ---
     Write-Log "=== Processing Application Permissions from $($AppPermissionsCsvPath) ===" "INFO"
     Write-Log "Expected App Category Name: '$($AppCategoryName)'" "INFO"

@@ -2085,7 +2085,29 @@ function Start-MainScript {
         if ($script:Config.EnvironmentSettings -and $script:Config.EnvironmentSettings.EnableDebugLogging) {
             $scriptArgs += '-EnableScriptDebug'
         }
-        
+
+        # Add hierarchical inheritance parameters if enabled
+        if ($script:Config.HierarchicalInheritance -and $script:Config.HierarchicalInheritance.Enabled) {
+            Write-Log "Adding hierarchical tag inheritance parameters" -Level Debug
+            $scriptArgs += '-EnableHierarchicalInheritance'
+
+            # Add inheritance categories
+            if ($script:Config.HierarchicalInheritance.InheritableCategories -and $script:Config.HierarchicalInheritance.InheritableCategories.Count -gt 0) {
+                $categoriesString = $script:Config.HierarchicalInheritance.InheritableCategories -join ','
+                $scriptArgs += '-InheritanceCategories'
+                $scriptArgs += "`"$categoriesString`""
+                Write-Log "Inheritance categories: $categoriesString" -Level Debug
+            }
+
+            # Add inheritance dry run if configured
+            if ($script:Config.HierarchicalInheritance.DryRun) {
+                $scriptArgs += '-InheritanceDryRun'
+                Write-Log "Inheritance dry run mode enabled" -Level Debug
+            }
+        } else {
+            Write-Log "Hierarchical tag inheritance is disabled" -Level Debug
+        }
+
         # Combine all arguments
         $ps7Arguments = $powershellArgs + $scriptArgs
         

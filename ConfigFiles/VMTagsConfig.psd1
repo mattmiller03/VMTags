@@ -357,6 +357,30 @@
         EnableCustomModuleLoading = $true
         EnableNetworkConnectivityTests = $true
         EnableMultiVCenterSupport = $true
+        EnableHierarchicalTagInheritance = $false  # Enable automatic tag inheritance from folders/resource pools
+    }
+
+    # Hierarchical Tag Inheritance Settings
+    HierarchicalInheritance = @{
+        # Enable/disable hierarchical tag inheritance
+        Enabled = $false  # Set to true to enable automatic inheritance
+
+        # Categories to inherit from parent containers (folders and resource pools)
+        # Default: only inherit App team tags for permission management
+        InheritableCategories = @("App")  # Can include: "App", "Function", "OS", etc.
+
+        # Inheritance behavior
+        OverwriteExistingTags = $false  # If true, inherited tags can overwrite existing tags in same category
+        InheritFromFolders = $true      # Inherit tags from VM folder hierarchy
+        InheritFromResourcePools = $true # Inherit tags from resource pool hierarchy
+
+        # Logging and reporting
+        EnableInheritanceLogging = $true
+        LogInheritanceDetails = $true   # Log detailed inheritance actions per VM
+
+        # Performance settings
+        BatchProcessInheritance = $true
+        InheritanceBatchSize = 100
     }
 
     # Multi-vCenter Enhanced Linked Mode Settings
