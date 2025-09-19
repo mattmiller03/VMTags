@@ -26,9 +26,11 @@ try {
     }
 
   // Build the PowerShell command with explicit credential exclusion
-  // Set environment variables to prevent credential injection
-  var envPrefix = "$env:ARIA_NO_CREDENTIAL_INJECTION='1'; $env:USE_STORED_CREDENTIALS='1'; ";
+  // Set environment variables to prevent credential injection and detect debug mode
+  var envPrefix = "$env:ARIA_NO_CREDENTIAL_INJECTION='1'; $env:USE_STORED_CREDENTIALS='1'; $env:VRO_DEBUG='1'; $env:POWERSHELL_INTERACTIVE='0'; ";
   var psCommand = envPrefix + "& '" + scriptPath + "'";
+
+  System.log("Setting Aria Operations environment variables for credential control and debug detection");
 
   // Add mandatory Environment parameter
   if (environment) {

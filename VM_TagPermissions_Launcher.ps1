@@ -626,9 +626,24 @@ function Get-VMCredentials {
         Write-Log "Collecting vCenter credentials..." -Level Info
 
         # Check for Aria Operations environment and force stored credentials
-        $isAriaExecution = $env:ARIA_EXECUTION -eq "1" -or $env:AUTOMATION_MODE -eq "ARIA_OPERATIONS" -or $env:ARIA_NO_CREDENTIAL_INJECTION -eq "1"
+        $isAriaExecution = $env:ARIA_EXECUTION -eq "1" -or
+                          $env:AUTOMATION_MODE -eq "ARIA_OPERATIONS" -or
+                          $env:ARIA_NO_CREDENTIAL_INJECTION -eq "1" -or
+                          $env:VRO_WORKFLOW_ID -or
+                          $env:VRO_DEBUG -eq "1" -or
+                          ($env:POWERSHELL_INTERACTIVE -eq "0")
+
         if ($isAriaExecution) {
-            Write-Log "Aria Operations execution detected - forcing use of stored credentials" -Level Info
+            $detectionReason = @()
+            if ($env:ARIA_EXECUTION -eq "1") { $detectionReason += "ARIA_EXECUTION=1" }
+            if ($env:AUTOMATION_MODE -eq "ARIA_OPERATIONS") { $detectionReason += "AUTOMATION_MODE=ARIA_OPERATIONS" }
+            if ($env:ARIA_NO_CREDENTIAL_INJECTION -eq "1") { $detectionReason += "ARIA_NO_CREDENTIAL_INJECTION=1" }
+            if ($env:VRO_WORKFLOW_ID) { $detectionReason += "VRO_WORKFLOW_ID=$($env:VRO_WORKFLOW_ID)" }
+            if ($env:VRO_DEBUG -eq "1") { $detectionReason += "VRO_DEBUG=1" }
+            if ($env:POWERSHELL_INTERACTIVE -eq "0") { $detectionReason += "POWERSHELL_INTERACTIVE=0" }
+
+            Write-Log "Aria Operations execution detected via: $($detectionReason -join ', ')" -Level Info
+            Write-Log "Forcing use of stored credentials for automation compatibility" -Level Info
             $UseStoredCredentials = $true
         }
 
@@ -873,7 +888,14 @@ function Get-VMCredentials {
         Write-Log "Failed to get credentials: $($_.Exception.Message)" -Level Error
 
         # In Aria mode, exit cleanly instead of throwing
-        if ($env:ARIA_EXECUTION -eq "1" -or $env:AUTOMATION_MODE -eq "ARIA_OPERATIONS" -or $env:ARIA_NO_CREDENTIAL_INJECTION -eq "1") {
+        $isAriaMode = $env:ARIA_EXECUTION -eq "1" -or
+                     $env:AUTOMATION_MODE -eq "ARIA_OPERATIONS" -or
+                     $env:ARIA_NO_CREDENTIAL_INJECTION -eq "1" -or
+                     $env:VRO_WORKFLOW_ID -or
+                     $env:VRO_DEBUG -eq "1" -or
+                     ($env:POWERSHELL_INTERACTIVE -eq "0")
+
+        if ($isAriaMode) {
             Write-Log "Exiting script due to credential error in Aria Operations mode" -Level Error
             exit 5
         } else {
