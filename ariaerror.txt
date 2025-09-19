@@ -1,0 +1,35 @@
+2025-09-19 14:21:02.809 -04:00info=== DEBUG: Input Values ===
+2025-09-19 14:21:02.810 -04:00infoscriptPath: c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1
+2025-09-19 14:21:02.811 -04:00infoenvironment: DEV
+2025-09-19 14:21:02.812 -04:00info===============================
+2025-09-19 14:21:02.813 -04:00infoAdded environment parameter: DEV
+2025-09-19 14:21:02.815 -04:00infoAdded UseStoredCredentials to prevent Aria credential injection
+2025-09-19 14:21:02.817 -04:00infoAdded AutomationMode for non-interactive execution
+2025-09-19 14:21:02.818 -04:00infoFinal PowerShell command: $env:ARIA_NO_CREDENTIAL_INJECTION='1'; $env:USE_STORED_CREDENTIALS='1'; & 'c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1' -Environment 'DEV' -UseStoredCredentials -AutomationMode
+2025-09-19 14:21:02.819 -04:00infoUsing invokeScript method with credential exclusion and timeout
+2025-09-19 14:21:02.821 -04:00infoSetting execution timeout to 1800 seconds (30 minutes)
+2025-09-19 14:21:02.822 -04:00infoAttempting execution without credential injection
+2025-09-19 14:21:02.824 -04:00infoExecution started at: Fri Sep 19 2025 18:21:02 GMT-0000 (GMT)
+2025-09-19 14:21:13.054 -04:00infoPowerShell execution completed in 10.23 seconds
+2025-09-19 14:21:13.056 -04:00infoExit code: -1
+2025-09-19 14:21:13.058 -04:00infoHost output found:
+2025-09-19 14:21:13.059 -04:00infoFinal output text length: 1
+2025-09-19 14:21:13.061 -04:00infoOutput preview:
+2025-09-19 14:21:13.062 -04:00infoSetting result to: ERROR - Exit Code: -1 - Duration: 10.23s
+2025-09-19 14:21:13.064 -04:00infoVM Tags automation completed with status: ERROR
+2025-09-19 14:21:13.065 -04:00infoTotal execution time: 10.23 seconds
+2025-09-19 14:21:13.067 -04:00errorPowerShell script completed with non-zero exit code: -1
+2025-09-19 14:21:13.068 -04:00errorScript output:
+2025-09-19 14:21:13.069 -04:00infoFinal workflow result: ERROR - Exit Code: -1 - Duration: 10.23s
+2025-09-19 14:21:13.071 -04:00errorWorkflow:VMTags Script Execution / Scriptable task (item1) : ch.dunes.model.type.ConvertorException: Unable to convert object, 'ERROR - Exit Code: -1 - Duration: 10.23s' plugin unexcepted exception : Bad type syntax 'string'
+2025-09-19 14:21:13.080 -04:00errorWorkflow execution stack:
+***
+item: 'VMTags Script Execution/item1', state: 'failed', business state: 'null', exception: 'Unable to convert object, 'ERROR - Exit Code: -1 - Duration: 10.23s' plugin unexcepted exception : Bad type syntax 'string''
+workflow: 'VMTags Script Execution' (07b3341c-6fff-4033-9388-6df7b0ef1ad4) 
+|  'attribute': name=scriptPath type=string value=c:\DLA-Failsafe\vRA\MattM\Workflow\VMTags\Aria-VMTags-Wrapper.ps1
+|  'attribute': name=ExecutionResult type=string value=
+|  'attribute': name=host type=PowerShell:PowerShellHost value=dunes://service.dunes.ch/CustomSDKObject?id='e23d7c79-e3d3-4453-b12d-842ac949b47e'&dunesName='PowerShell:PowerShellHost'
+|  'input': name=environment type=string value=DEV
+|  'output': name=result type=PowerShell:PowerShellRemotePSObject value=null
+*** End of execution stack.
+Close
