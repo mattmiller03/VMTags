@@ -1008,7 +1008,7 @@ function Save-VMCredential {
         # Ensure credential directory exists
         if (-not (Test-Path $CredentialStorePath)) {
             New-Item -Path $CredentialStorePath -ItemType Directory -Force | Out-Null
-            Write-Log "Created credential storage directory: $CredentialStorePath" -Level Info
+            Write-Log "Created credential storage directory: $($CredentialStorePath)" -Level Info
         }
         
         # Set directory permissions (Windows only) - Skip if not enough permissions
