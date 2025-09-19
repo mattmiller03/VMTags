@@ -1,8 +1,27 @@
-  // Debug: Log input values
-  System.log("=== DEBUG: Input Values ===");
-  System.log("scriptPath: " + scriptPath);
-  System.log("environment: " + environment);
-  System.log("===============================");
+// JavaScript wrapper with comprehensive error handling
+try {
+    // Initialize variables and debug logging
+    var result = "INITIALIZED";
+    var startTime = new Date().getTime();
+
+    // Debug: Log input values with null checking
+    System.log("=== DEBUG: Input Values ===");
+    System.log("scriptPath: " + (scriptPath || "UNDEFINED"));
+    System.log("environment: " + (environment || "UNDEFINED"));
+    System.log("===============================");
+
+    // Validate required inputs
+    if (!scriptPath) {
+        result = "FAILED - scriptPath parameter is required but not provided";
+        System.error(result);
+        return result;
+    }
+
+    if (!environment) {
+        result = "FAILED - environment parameter is required but not provided";
+        System.error(result);
+        return result;
+    }
 
   // Build the PowerShell command with explicit credential exclusion
   // Set environment variables to prevent credential injection
@@ -45,8 +64,8 @@
 
       System.log("Attempting execution without credential injection");
 
-      // Track execution start time
-      var startTime = new Date().getTime();
+      // Update start time for execution tracking
+      startTime = new Date().getTime();
       System.log("Execution started at: " + new Date(startTime));
 
       var psResult = host.invokeScript(psCommand);
@@ -177,6 +196,18 @@
       return result;
   }
 
-  // Ensure we always return a result to complete the workflow
-  System.log("Final workflow result: " + result);
-  return result;
+    // Ensure we always return a result to complete the workflow
+    System.log("Final workflow result: " + result);
+    return result;
+
+} catch (jsError) {
+    // Catch any JavaScript syntax or runtime errors
+    System.error("JavaScript execution error: " + jsError.toString());
+    System.error("Error type: " + typeof jsError);
+    System.error("Error name: " + (jsError.name || "Unknown"));
+    System.error("Error message: " + (jsError.message || "No message"));
+
+    var errorResult = "FAILED - JavaScript Error: " + jsError.toString();
+    System.error("Returning error result: " + errorResult);
+    return errorResult;
+}
