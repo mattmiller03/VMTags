@@ -377,7 +377,10 @@
         AggregateInventoryAcrossVCenters = $true
 
         # Parallel processing across vCenters
-        EnableParallelVCenterProcessing = $false  # Set to true for independent vCenter operations
+        # WARNING: Only enable this for NON-Enhanced Linked Mode scenarios
+        # In Enhanced Linked Mode, all vCenters share the same inventory via SSO
+        # Running against multiple vCenters would process the same VMs multiple times
+        EnableParallelVCenterProcessing = $false  # Set to true ONLY for independent vCenter operations
         MaxParallelVCenterConnections = 2
 
         # Enhanced Linked Mode validation

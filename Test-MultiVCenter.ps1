@@ -112,11 +112,33 @@ ENVIRONMENT = @{
 }
 "@ -ForegroundColor Gray
 
+    Write-Host "`n=== Enhanced Linked Mode Behavior ===" -ForegroundColor Yellow
+    if ($envConfig.vCenterServers -and $envConfig.vCenterServers.Count -gt 0) {
+        Write-Host "For Enhanced Linked Mode environments:" -ForegroundColor White
+        Write-Host "• Script executes against PRIMARY vCenter only" -ForegroundColor Green
+        Write-Host "• All vCenters share the same VM inventory via SSO" -ForegroundColor Green
+        Write-Host "• Changes are visible across all linked vCenters" -ForegroundColor Green
+        Write-Host "• This prevents duplicate processing of the same VMs" -ForegroundColor Green
+
+        $parallelEnabled = $configData.MultiVCenter.EnableParallelVCenterProcessing
+        if ($parallelEnabled) {
+            Write-Host "`nWARNING: Parallel processing is ENABLED" -ForegroundColor Red
+            Write-Host "This will execute against ALL vCenters and may process VMs multiple times!" -ForegroundColor Red
+        } else {
+            Write-Host "`nParallel processing is DISABLED (recommended for Enhanced Linked Mode)" -ForegroundColor Green
+        }
+    }
+
     Write-Host "`n=== Usage Examples ===" -ForegroundColor Yellow
-    Write-Host "# Test with multi-vCenter mode:" -ForegroundColor White
+    Write-Host "# Normal execution (uses primary vCenter in Enhanced Linked Mode):" -ForegroundColor White
     Write-Host ".\VM_TagPermissions_Launcher.ps1 -Environment $Environment -UseStoredCredentials" -ForegroundColor Gray
     Write-Host "`n# Test connectivity only:" -ForegroundColor White
     Write-Host ".\Test-MultiVCenter.ps1 -Environment $Environment -TestConnectionsOnly" -ForegroundColor Gray
+
+    if ($envConfig.vCenterServers -and $envConfig.vCenterServers.Count -gt 0) {
+        Write-Host "`n# To enable parallel execution (NOT recommended for Enhanced Linked Mode):" -ForegroundColor White
+        Write-Host "# Set EnableParallelVCenterProcessing = `$true in VMTagsConfig.psd1" -ForegroundColor Gray
+    }
 
     Write-Host "`n=== Test Complete ===" -ForegroundColor Green
 

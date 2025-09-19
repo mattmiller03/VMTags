@@ -1309,6 +1309,156 @@ function Disconnect-FromMultipleVCenters {
         Write-Log "Error during vCenter disconnection: $($_.Exception.Message)" -Level Warning
     }
 }
+
+function Start-ParallelVCenterExecution {
+    <#
+    .SYNOPSIS
+        Executes the main script against multiple vCenters in parallel
+    .DESCRIPTION
+        This function runs the main VM tags script against each configured vCenter server
+        in parallel. Use this only when you need independent execution per vCenter
+        (not typical for Enhanced Linked Mode).
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        Write-Log "Starting parallel vCenter execution..." -Level Info
+
+        if (-not $script:Config.MultiVCenterMode -or -not $script:Config.vCenterServers) {
+            throw "Parallel vCenter execution requires multi-vCenter mode to be enabled"
+        }
+
+        $maxParallelConnections = $script:Config.MultiVCenter.MaxParallelVCenterConnections
+        $vCenterServers = $script:Config.vCenterServers | Sort-Object Priority
+
+        Write-Log "Executing against $($vCenterServers.Count) vCenter servers with max $maxParallelConnections parallel connections" -Level Info
+
+        $jobs = @()
+        $results = @()
+
+        foreach ($vcenterInfo in $vCenterServers) {
+            $server = $vcenterInfo.Server
+            $description = $vcenterInfo.Description
+
+            Write-Log "Starting execution job for: $server ($description)" -Level Info
+
+            # Create a script block for parallel execution
+            $scriptBlock = {
+                param($Server, $AppCsvPath, $OsCsvPath, $Environment, $CredentialPath, $MainScriptPath, $LogPath)
+
+                try {
+                    # Build arguments for main script
+                    $args = @(
+                        '-vCenterServer', "`"$Server`""
+                        '-AppPermissionsCsvPath', "`"$AppCsvPath`""
+                        '-OsMappingCsvPath', "`"$OsCsvPath`""
+                        '-Environment', $Environment
+                        '-CredentialPath', "`"$CredentialPath`""
+                    )
+
+                    if ($LogPath) {
+                        $args += '-LogDirectory'
+                        $args += "`"$LogPath`""
+                    }
+
+                    # Execute main script
+                    $process = Start-Process -FilePath "pwsh.exe" -ArgumentList @('-File', "`"$MainScriptPath`"") + $args -Wait -PassThru -WindowStyle Hidden
+
+                    return @{
+                        Server = $Server
+                        ExitCode = $process.ExitCode
+                        Success = ($process.ExitCode -eq 0)
+                        ExecutionTime = (Get-Date)
+                        Error = $null
+                    }
+                }
+                catch {
+                    return @{
+                        Server = $Server
+                        ExitCode = -1
+                        Success = $false
+                        ExecutionTime = (Get-Date)
+                        Error = $_.Exception.Message
+                    }
+                }
+            }
+
+            # Start job with throttling
+            while ((Get-Job -State Running).Count -ge $maxParallelConnections) {
+                Start-Sleep -Seconds 2
+                Write-Log "Waiting for available job slot (current: $((Get-Job -State Running).Count)/$maxParallelConnections)" -Level Debug
+            }
+
+            $job = Start-Job -ScriptBlock $scriptBlock -ArgumentList @(
+                $server,
+                $script:Config.DataPaths.AppPermissionsCSV,
+                $script:Config.DataPaths.OSMappingCSV,
+                $script:Config.CurrentEnvironment,
+                $script:CredentialPath,
+                $script:Config.DefaultPaths.MainScriptPath,
+                $script:Config.DataPaths.LogDirectory
+            )
+
+            $jobs += @{
+                Job = $job
+                Server = $server
+                Description = $description
+                StartTime = Get-Date
+            }
+        }
+
+        # Wait for all jobs to complete
+        Write-Log "Waiting for all parallel executions to complete..." -Level Info
+
+        while (($jobs | Where-Object { $_.Job.State -eq 'Running' }).Count -gt 0) {
+            Start-Sleep -Seconds 5
+
+            $runningJobs = $jobs | Where-Object { $_.Job.State -eq 'Running' }
+            $completedJobs = $jobs | Where-Object { $_.Job.State -ne 'Running' }
+
+            Write-Log "Parallel execution status: $($runningJobs.Count) running, $($completedJobs.Count) completed" -Level Info
+        }
+
+        # Collect results
+        foreach ($jobInfo in $jobs) {
+            $job = $jobInfo.Job
+            $result = Receive-Job -Job $job
+            Remove-Job -Job $job
+
+            $result.Description = $jobInfo.Description
+            $result.StartTime = $jobInfo.StartTime
+            $result.Duration = (Get-Date) - $jobInfo.StartTime
+
+            $results += $result
+
+            $statusColor = if ($result.Success) { "Success" } else { "Warning" }
+            Write-Log "Execution completed for $($result.Server): $(if ($result.Success) { 'SUCCESS' } else { 'FAILED' }) (Duration: $($result.Duration.ToString('hh\:mm\:ss')))" -Level $statusColor
+        }
+
+        # Summary
+        $successCount = ($results | Where-Object { $_.Success }).Count
+        $failCount = $results.Count - $successCount
+
+        Write-Log "Parallel execution summary: $successCount successful, $failCount failed" -Level Info
+
+        return @{
+            ExitCode = if ($failCount -eq 0) { 0 } else { 1 }
+            Results = $results
+            ExecutionTime = ($results | Measure-Object -Property Duration -Maximum).Maximum.ToString('hh\:mm\:ss')
+            SuccessCount = $successCount
+            FailCount = $failCount
+        }
+    }
+    catch {
+        Write-Log "Error in parallel vCenter execution: $($_.Exception.Message)" -Level Error
+
+        # Clean up any running jobs
+        Get-Job | Where-Object { $_.Name -like "*vCenter*" } | Remove-Job -Force
+
+        throw
+    }
+}
 #endregion
 
 function Initialize-Configuration {
@@ -1834,9 +1984,28 @@ function Start-MainScript {
         $appCsvPath = if ($script:Config.DataPaths.AppPermissionsCSV) { $script:Config.DataPaths.AppPermissionsCSV } else { throw "AppPermissionsCSV path not configured" }
         $osCsvPath = if ($script:Config.DataPaths.OSMappingCSV) { $script:Config.DataPaths.OSMappingCSV } else { throw "OSMappingCSV path not configured" }
         $currentEnvironment = if ($script:Config.CurrentEnvironment) { $script:Config.CurrentEnvironment } else { $Environment }
-        
+
+        # Enhanced Linked Mode execution strategy
+        if ($script:Config.MultiVCenterMode) {
+            Write-Log "Enhanced Linked Mode detected with $($script:Config.vCenterServers.Count) vCenter servers" -Level Info
+
+            if ($script:Config.MultiVCenter.EnableParallelVCenterProcessing) {
+                Write-Log "Parallel vCenter processing is ENABLED - will execute against multiple vCenters" -Level Info
+                return Start-ParallelVCenterExecution
+            } else {
+                Write-Log "Using primary vCenter for execution: $($vCenterServer)" -Level Info
+                Write-Log "Note: Enhanced Linked Mode shares inventory across all vCenters via SSO" -Level Info
+
+                # Log all configured vCenters for transparency
+                foreach ($vcenterInfo in $script:Config.vCenterServers) {
+                    $status = if ($vcenterInfo.Server -eq $vCenterServer) { " [PRIMARY - EXECUTING]" } else { " [LINKED]" }
+                    Write-Log "  vCenter: $($vcenterInfo.Server) - $($vcenterInfo.Description)$status" -Level Debug
+                }
+            }
+        }
+
         Write-Log "Execution parameters:" -Level Debug
-        Write-Log "  vCenter Server: $($vCenterServer)" -Level Debug
+        Write-Log "  Target vCenter: $($vCenterServer)" -Level Debug
         Write-Log "  App CSV: $($appCsvPath)" -Level Debug
         Write-Log "  OS CSV: $($osCsvPath)" -Level Debug
         Write-Log "  Environment: $($currentEnvironment)" -Level Debug
