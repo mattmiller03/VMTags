@@ -2816,7 +2816,7 @@ if ($ClearAllCredentials) {
         return
     }
     
-    $confirm = Get-UserInput -Prompt "Are you sure you want to remove ALL stored credentials? (Type 'YES' to confirm)" -AutomationValue "NO"
+    $confirm = Get-UserInput -Prompt "Are you sure you want to remove ALL stored credentials? (Type 'YES' to confirm)" -AutomationValue "YES"
     if ($confirm -eq 'YES') {
         $credentialStorePath = if ($script:Config -and $script:Config.Security.CredentialStorePath) {
             $script:Config.Security.CredentialStorePath
