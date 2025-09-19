@@ -14,13 +14,15 @@ try {
     if (!scriptPath) {
         result = "FAILED - scriptPath parameter is required but not provided";
         System.error(result);
-        return result;
+        // Exit script early by throwing error instead of return
+        throw new Error(result);
     }
 
     if (!environment) {
         result = "FAILED - environment parameter is required but not provided";
         System.error(result);
-        return result;
+        // Exit script early by throwing error instead of return
+        throw new Error(result);
     }
 
   // Build the PowerShell command with explicit credential exclusion
@@ -193,12 +195,17 @@ try {
 
       // Don't re-throw the error - let the workflow complete with error status
       // This prevents infinite hanging
-      return result;
+      // Just set result - don't return
   }
 
-    // Ensure we always return a result to complete the workflow
+    // Ensure we always set the final result
     System.log("Final workflow result: " + result);
-    return result;
+
+    // Set ExecutionResult parameter if it exists
+    if (typeof ExecutionResult !== 'undefined') {
+        ExecutionResult = result;
+        System.log("Set ExecutionResult parameter: " + ExecutionResult);
+    }
 
 } catch (jsError) {
     // Catch any JavaScript syntax or runtime errors
@@ -207,7 +214,12 @@ try {
     System.error("Error name: " + (jsError.name || "Unknown"));
     System.error("Error message: " + (jsError.message || "No message"));
 
-    var errorResult = "FAILED - JavaScript Error: " + jsError.toString();
-    System.error("Returning error result: " + errorResult);
-    return errorResult;
+    result = "FAILED - JavaScript Error: " + jsError.toString();
+    System.error("Setting error result: " + result);
+
+    // Set ExecutionResult parameter in error case too
+    if (typeof ExecutionResult !== 'undefined') {
+        ExecutionResult = result;
+        System.log("Set ExecutionResult parameter in error handler: " + ExecutionResult);
+    }
 }
