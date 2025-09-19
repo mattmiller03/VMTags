@@ -34,6 +34,12 @@ desktop.ini
 # Ignore Visual Studio Code settings
 .vscode/
 
+# Ignore Claude Code settings and local data
+.claude/
+
+# Ignore Visual Studio settings and cache
+.vs/
+
 # Ignore PowerShell profile backups
 *_profile.ps1.bak
 /Reports/KLEB/ExecutionSummary_KLEB_20250908_092652.csv
