@@ -561,33 +561,27 @@ function Test-SsoGroupExistsSimple {
     }
 }
 function Ensure-TagCategory {
+    # PowerCLI 13+ Note: EntityType cannot be modified on existing categories using Set-TagCategory
+    # EntityType can only be set during category creation with New-TagCategory
     param([string]$CategoryName, [string]$Description = "Managed by script", [string]$Cardinality = "MULTIPLE", [string[]]$EntityType = @("VirtualMachine", "Folder", "VApp", "ResourcePool", "HostSystem"))
     $existingCat = Get-TagCategory -Name $CategoryName -ErrorAction SilentlyContinue
     if ($existingCat) {
-        # Check if existing category needs entity type updates
+        # Check if existing category has required entity types
         $currentEntityTypes = $existingCat.EntityType
-        $needsUpdate = $false
+        $missingTypes = @()
 
         foreach ($type in $EntityType) {
             if ($currentEntityTypes -notcontains $type) {
-                $needsUpdate = $true
-                break
+                $missingTypes += $type
             }
         }
 
-        if ($needsUpdate) {
-            Write-Log "Category '$($CategoryName)' exists but needs entity type updates. Current: [$($currentEntityTypes -join ', ')], Required: [$($EntityType -join ', ')]" "INFO"
-            try {
-                # Combine existing and new entity types, removing duplicates
-                $updatedEntityTypes = @($currentEntityTypes) + @($EntityType) | Sort-Object -Unique
-                Set-TagCategory -Category $existingCat -EntityType $updatedEntityTypes -ErrorAction Stop
-                Write-Log "Successfully updated entity types for category '$($CategoryName)' to: [$($updatedEntityTypes -join ', ')]" "INFO"
-                return Get-TagCategory -Name $CategoryName -ErrorAction SilentlyContinue
-            }
-            catch {
-                Write-Log "Failed to update entity types for category '$($CategoryName)': $_" "WARN"
-                Write-Log "Continuing with existing category as-is" "INFO"
-            }
+        if ($missingTypes.Count -gt 0) {
+            Write-Log "Category '$($CategoryName)' exists but is missing entity types: [$($missingTypes -join ', ')]. Current: [$($currentEntityTypes -join ', ')]" "WARN"
+            Write-Log "NOTE: PowerCLI 13+ does not support updating EntityType on existing categories. Manual update required if needed." "WARN"
+            Write-Log "Continuing with existing category configuration" "INFO"
+        } else {
+            Write-Log "Category '$($CategoryName)' exists with correct entity types: [$($currentEntityTypes -join ', ')]" "DEBUG"
         }
 
         return $existingCat
