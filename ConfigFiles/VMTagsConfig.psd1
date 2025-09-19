@@ -166,7 +166,8 @@
         )
         
         DebugArguments = @(
-            "-Verbose"
+            # Removed -Verbose as it conflicts with PowerShell parameter handling
+            # Debug mode is controlled through script parameters instead
         )
         
         MemoryLimitMB = 2048
