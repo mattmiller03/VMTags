@@ -912,15 +912,29 @@ function Save-VMCredential {
             Write-Log "Created credential storage directory: $CredentialStorePath" -Level Info
         }
         
-        # Set directory permissions (Windows only)
+        # Set directory permissions (Windows only) - Skip if not enough permissions
         if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
             try {
-                $acl = Get-Acl $CredentialStorePath
-                $acl.SetAccessRuleProtection($true, $false)  # Remove inheritance
-                $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
-                $acl.SetAccessRule($accessRule)
-                Set-Acl $CredentialStorePath $acl
-                Write-Log "Set secure permissions on credential directory" -Level Debug
+                # Check if we can modify ACLs first
+                $testAcl = Get-Acl $CredentialStorePath -ErrorAction Stop
+
+                # Only attempt ACL modification if we're not in a restricted environment
+                if ($testAcl -and -not $testAcl.AreAccessRulesProtected) {
+                    $acl = Get-Acl $CredentialStorePath
+                    $acl.SetAccessRuleProtection($true, $false)  # Remove inheritance
+                    $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")
+                    $acl.SetAccessRule($accessRule)
+                    Set-Acl $CredentialStorePath $acl -ErrorAction Stop
+                    Write-Log "Set secure permissions on credential directory" -Level Debug
+                } else {
+                    Write-Log "Skipping ACL modification - directory already has protected access rules or insufficient permissions" -Level Debug
+                }
+            }
+            catch [System.UnauthorizedAccessException] {
+                Write-Log "Warning: Insufficient permissions to modify directory ACLs. Credentials will still be stored but may not have optimal security." -Level Warning
+            }
+            catch [System.Security.SecurityException] {
+                Write-Log "Warning: Security policy prevents ACL modification. Credentials will still be stored but may not have optimal security." -Level Warning
             }
             catch {
                 Write-Log "Warning: Could not set secure permissions on credential directory: $($_.Exception.Message)" -Level Warning
@@ -947,20 +961,39 @@ function Save-VMCredential {
         $Credential | Export-Clixml -Path $fullCredentialPath -Force
         $metadata | Export-Clixml -Path $metadataPath -Force
         
-        # Set file permissions (Windows only)
+        # Set file permissions (Windows only) - Skip if not enough permissions
         if ($IsWindows -or $PSVersionTable.PSVersion.Major -le 5) {
             try {
                 foreach ($filePath in @($fullCredentialPath, $metadataPath)) {
-                    $acl = Get-Acl $filePath
-                    $acl.SetAccessRuleProtection($true, $false)  # Remove inheritance
-                    $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, "FullControl", "None", "None", "Allow")
-                    $acl.SetAccessRule($accessRule)
-                    Set-Acl $filePath $acl
+                    try {
+                        # Check if we can modify ACLs on this file
+                        $testAcl = Get-Acl $filePath -ErrorAction Stop
+
+                        # Only attempt ACL modification if we're not in a restricted environment
+                        if ($testAcl -and -not $testAcl.AreAccessRulesProtected) {
+                            $acl = Get-Acl $filePath
+                            $acl.SetAccessRuleProtection($true, $false)  # Remove inheritance
+                            $accessRule = New-Object System.Security.AccessControl.FileSystemAccessRule($env:USERNAME, "FullControl", "None", "None", "Allow")
+                            $acl.SetAccessRule($accessRule)
+                            Set-Acl $filePath $acl -ErrorAction Stop
+                        } else {
+                            Write-Log "Skipping ACL modification for $([System.IO.Path]::GetFileName($filePath)) - file already has protected access rules or insufficient permissions" -Level Debug
+                        }
+                    }
+                    catch [System.UnauthorizedAccessException] {
+                        Write-Log "Warning: Insufficient permissions to modify ACLs for $([System.IO.Path]::GetFileName($filePath)). File will still be stored." -Level Warning
+                    }
+                    catch [System.Security.SecurityException] {
+                        Write-Log "Warning: Security policy prevents ACL modification for $([System.IO.Path]::GetFileName($filePath)). File will still be stored." -Level Warning
+                    }
+                    catch {
+                        Write-Log "Warning: Could not set secure permissions on $([System.IO.Path]::GetFileName($filePath)): $($_.Exception.Message)" -Level Warning
+                    }
                 }
-                Write-Log "Set secure permissions on credential files" -Level Debug
+                Write-Log "Credential file security configuration completed" -Level Debug
             }
             catch {
-                Write-Log "Warning: Could not set secure permissions on credential files: $($_.Exception.Message)" -Level Warning
+                Write-Log "Warning: Could not configure security for credential files: $($_.Exception.Message)" -Level Warning
             }
         }
         
