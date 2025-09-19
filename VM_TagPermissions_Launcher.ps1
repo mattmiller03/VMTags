@@ -1638,10 +1638,16 @@ function Initialize-Configuration {
             Write-Log "Multi-vCenter Enhanced Linked Mode enabled with $($script:Config.vCenterServers.Count) servers" -Level Info
         } else {
             # Single vCenter mode (backward compatibility)
+            Write-Log "Setting up single vCenter mode with server: $($envConfig.vCenterServer)" -Level Debug
             $script:Config.vCenterServer = $envConfig.vCenterServer
             $script:Config.vCenterServers = @(@{ Server = $envConfig.vCenterServer; Description = "Single vCenter"; Priority = 1 })
             $script:Config.MultiVCenterMode = $false
-            Write-Log "Single vCenter mode enabled" -Level Info
+            Write-Log "Single vCenter mode enabled for: $($script:Config.vCenterServer)" -Level Info
+
+            # Validate configuration was set properly
+            if (-not $script:Config.vCenterServer) {
+                Write-Log "ERROR: vCenterServer is null after configuration setup. envConfig.vCenterServer was: '$($envConfig.vCenterServer)'" -Level Error
+            }
         }
 
         $script:Config.SSODomain = $envConfig.SSODomain
@@ -2072,8 +2078,19 @@ function Start-MainScript {
         # Build execution parameters manually instead of using Get-VMTagsExecutionParameters
         Write-Log "Building execution parameters manually..." -Level Debug
         
-        # Get values directly from config with null checking
-        $vCenterServer = if ($script:Config.vCenterServer) { $script:Config.vCenterServer } else { throw "vCenterServer not configured" }
+        # Get values directly from config with null checking and detailed debugging
+        Write-Log "Debug: script:Config.vCenterServer = '$($script:Config.vCenterServer)'" -Level Debug
+        Write-Log "Debug: script:Config.MultiVCenterMode = '$($script:Config.MultiVCenterMode)'" -Level Debug
+        Write-Log "Debug: script:Config.vCenterServers.Count = '$($script:Config.vCenterServers.Count)'" -Level Debug
+
+        if (-not $script:Config.vCenterServer) {
+            Write-Log "ERROR: vCenterServer is null. Full config dump:" -Level Error
+            Write-Log "script:Config keys: $($script:Config.Keys -join ', ')" -Level Debug
+            Write-Log "Environment: $($script:Config.CurrentEnvironment)" -Level Debug
+            throw "vCenterServer not configured - check configuration setup for environment $($script:Config.CurrentEnvironment)"
+        }
+
+        $vCenterServer = $script:Config.vCenterServer
         $appCsvPath = if ($script:Config.DataPaths.AppPermissionsCSV) { $script:Config.DataPaths.AppPermissionsCSV } else { throw "AppPermissionsCSV path not configured" }
         $osCsvPath = if ($script:Config.DataPaths.OSMappingCSV) { $script:Config.DataPaths.OSMappingCSV } else { throw "OSMappingCSV path not configured" }
         $currentEnvironment = if ($script:Config.CurrentEnvironment) { $script:Config.CurrentEnvironment } else { $Environment }
