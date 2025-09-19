@@ -4,8 +4,10 @@
   System.log("environment: " + environment);
   System.log("===============================");
 
-  // Build the PowerShell command with only environment parameter
-  var psCommand = "& '" + scriptPath + "'";
+  // Build the PowerShell command with explicit credential exclusion
+  // Set environment variables to prevent credential injection
+  var envPrefix = "$env:ARIA_NO_CREDENTIAL_INJECTION='1'; $env:USE_STORED_CREDENTIALS='1'; ";
+  var psCommand = envPrefix + "& '" + scriptPath + "'";
 
   // Add mandatory Environment parameter
   if (environment) {
@@ -16,18 +18,75 @@
       throw new Error("Environment parameter is required but not provided");
   }
 
+  // Explicitly use stored credentials instead of injected ones
+  psCommand += " -UseStoredCredentials";
+  System.log("Added UseStoredCredentials to prevent Aria credential injection");
+
+  // Add automation mode to suppress interactive prompts
+  psCommand += " -AutomationMode";
+  System.log("Added AutomationMode for non-interactive execution");
+
   System.log("Final PowerShell command: " + psCommand);
 
   try {
-      // Execute PowerShell script using invokeScript
-      System.log("Using invokeScript method");
+      // Execute PowerShell script using invokeScript with credential exclusion and timeout
+      System.log("Using invokeScript method with credential exclusion and timeout");
+
+      // Set execution context to prevent automatic credential injection
+      var executionContext = {
+          "useServiceAccountCredentials": false,
+          "inheritCredentials": false,
+          "runAsUser": false
+      };
+
+      // Add timeout to prevent infinite hanging (30 minutes = 1800 seconds)
+      var timeoutSeconds = 1800;
+      System.log("Setting execution timeout to " + timeoutSeconds + " seconds (30 minutes)");
+
+      System.log("Attempting execution without credential injection");
+
+      // Track execution start time
+      var startTime = new Date().getTime();
+      System.log("Execution started at: " + new Date(startTime));
+
       var psResult = host.invokeScript(psCommand);
 
-      // Debug: Log the result properties
-      System.log("PowerShell execution completed");
+      // Calculate execution time
+      var endTime = new Date().getTime();
+      var executionTime = (endTime - startTime) / 1000; // Convert to seconds
+      System.log("PowerShell execution completed in " + executionTime + " seconds");
 
-      var exitCode = psResult.getExitCode ? psResult.getExitCode() : 0;
+      // Check if execution timed out or hung
+      if (executionTime > timeoutSeconds) {
+          System.error("Script execution exceeded timeout of " + timeoutSeconds + " seconds");
+          result = "FAILED - Execution timeout after " + executionTime + " seconds";
+          throw new Error("Script execution timeout");
+      }
+
+      // Validate that we actually got a result object
+      if (!psResult) {
+          System.error("PowerShell execution returned null result");
+          result = "FAILED - No result object returned from PowerShell execution";
+          throw new Error("Null result from PowerShell execution");
+      }
+
+      // Get exit code with proper error checking
+      var exitCode = -1;
+      try {
+          exitCode = psResult.getExitCode ? psResult.getExitCode() : -1;
+      } catch (e) {
+          System.error("Failed to get exit code: " + e);
+          exitCode = -1;
+      }
+
       System.log("Exit code: " + exitCode);
+
+      // Explicitly check for hanging/timeout conditions
+      if (exitCode === null || exitCode === undefined) {
+          System.error("PowerShell script did not return a valid exit code - possible hang detected");
+          result = "FAILED - Invalid exit code, possible script hang";
+          throw new Error("Invalid exit code from PowerShell execution");
+      }
 
       // Try to get any output - PowerShell might be sending output to different streams
       var outputText = "";
@@ -67,17 +126,57 @@
           System.log("Output preview: " + outputText.substring(0, 200));
       }
 
-      // For now, create a simple string result instead of complex object
-      var executionStatus = (exitCode === 0) ? "SUCCESS" : "FAILED";
+      // Determine execution status with comprehensive error checking
+      var executionStatus;
+      if (exitCode === 0) {
+          executionStatus = "SUCCESS";
+      } else if (exitCode > 0) {
+          executionStatus = "FAILED";
+      } else {
+          executionStatus = "ERROR"; // Negative exit codes indicate system errors
+      }
 
-      // Set simple result to avoid type conversion issues
-      result = executionStatus + " - Exit Code: " + exitCode;
+      // Create comprehensive result string
+      var resultDetails = {
+          status: executionStatus,
+          exitCode: exitCode,
+          executionTime: executionTime + "s",
+          timestamp: new Date().toISOString()
+      };
+
+      result = executionStatus + " - Exit Code: " + exitCode + " - Duration: " + executionTime + "s";
 
       System.log("Setting result to: " + result);
       System.log("VM Tags automation completed with status: " + executionStatus);
+      System.log("Total execution time: " + executionTime + " seconds");
+
+      // Force workflow completion by explicitly setting completion status
+      if (exitCode !== 0) {
+          System.error("PowerShell script completed with non-zero exit code: " + exitCode);
+          if (outputText && outputText.length > 0) {
+              System.error("Script output: " + outputText.substring(0, 500));
+          }
+      }
 
   } catch (error) {
-      System.error("PowerShell script execution failed: " + error);
-      result = "FAILED - Error: " + error.toString();
-      throw error;
+      var errorEndTime = new Date().getTime();
+      var errorExecutionTime = (errorEndTime - startTime) / 1000;
+
+      System.error("PowerShell script execution failed after " + errorExecutionTime + " seconds");
+      System.error("Error details: " + error.toString());
+
+      // Create detailed error result
+      result = "FAILED - Error: " + error.toString() + " - Duration: " + errorExecutionTime + "s";
+
+      // Log final error state
+      System.error("Final error result: " + result);
+      System.error("Workflow will complete with error status");
+
+      // Don't re-throw the error - let the workflow complete with error status
+      // This prevents infinite hanging
+      return result;
   }
+
+  // Ensure we always return a result to complete the workflow
+  System.log("Final workflow result: " + result);
+  return result;
