@@ -785,33 +785,69 @@ function Test-StoredCredential {
         [Parameter(Mandatory = $true)]
         [System.Management.Automation.PSCredential]$Credential
     )
-    
+
     try {
-        Write-Log "Testing stored credentials against vCenter server..." -Level Debug
-        
+        Write-Log "Testing stored credentials against vCenter server(s)..." -Level Debug
+
         # Import VMware PowerCLI if not already loaded
         if (-not (Get-Module -Name "VMware.VimAutomation.Core" -ErrorAction SilentlyContinue)) {
             Import-Module VMware.VimAutomation.Core -ErrorAction Stop
         }
-        
+
         # Set PowerCLI configuration to ignore certificate warnings temporarily
         $originalCertPolicy = (Get-PowerCLIConfiguration -Scope Session).InvalidCertificateAction
         Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false -Scope Session | Out-Null
-        
-        # Attempt connection
-        $connection = Connect-VIServer -Server $script:Config.vCenterServer -Credential $Credential -ErrorAction Stop -WarningAction SilentlyContinue
-        
-        if ($connection) {
-            Write-Log "Credential validation successful" -Level Debug
-            Disconnect-VIServer -Server $connection -Confirm:$false -ErrorAction SilentlyContinue
-            
-            # Restore original certificate policy
+
+        # Test credentials using multi-vCenter approach
+        if ($script:Config.MultiVCenterMode -and $script:Config.vCenterServers) {
+            Write-Log "Testing credentials against multiple vCenter servers..." -Level Debug
+
+            # Test against primary vCenter first
+            $primaryVCenter = $script:Config.vCenterServers | Where-Object { $_.Priority -eq 1 } | Select-Object -First 1
+            if ($primaryVCenter) {
+                $result = Test-VCenterConnection -Server $primaryVCenter.Server -Credential $Credential
+                if ($result.Connected -and $result.ConnectionObject) {
+                    Write-Log "Credential validation successful against primary vCenter: $($primaryVCenter.Server)" -Level Debug
+                    Disconnect-VIServer -Server $result.ConnectionObject -Confirm:$false -ErrorAction SilentlyContinue
+
+                    # Restore original certificate policy
+                    Set-PowerCLIConfiguration -InvalidCertificateAction $originalCertPolicy -Confirm:$false -Scope Session | Out-Null
+                    return $true
+                }
+            }
+
+            # If primary failed, test against other vCenters
+            foreach ($vcenterInfo in ($script:Config.vCenterServers | Where-Object { $_.Priority -ne 1 })) {
+                $result = Test-VCenterConnection -Server $vcenterInfo.Server -Credential $Credential
+                if ($result.Connected -and $result.ConnectionObject) {
+                    Write-Log "Credential validation successful against vCenter: $($vcenterInfo.Server)" -Level Debug
+                    Disconnect-VIServer -Server $result.ConnectionObject -Confirm:$false -ErrorAction SilentlyContinue
+
+                    # Restore original certificate policy
+                    Set-PowerCLIConfiguration -InvalidCertificateAction $originalCertPolicy -Confirm:$false -Scope Session | Out-Null
+                    return $true
+                }
+            }
+
+            Write-Log "Credential validation failed against all vCenter servers" -Level Debug
             Set-PowerCLIConfiguration -InvalidCertificateAction $originalCertPolicy -Confirm:$false -Scope Session | Out-Null
-            
-            return $true
-        } else {
-            Write-Log "Credential validation failed - no connection established" -Level Debug
             return $false
+        } else {
+            # Single vCenter mode (backward compatibility)
+            $connection = Connect-VIServer -Server $script:Config.vCenterServer -Credential $Credential -ErrorAction Stop -WarningAction SilentlyContinue
+
+            if ($connection) {
+                Write-Log "Credential validation successful" -Level Debug
+                Disconnect-VIServer -Server $connection -Confirm:$false -ErrorAction SilentlyContinue
+
+                # Restore original certificate policy
+                Set-PowerCLIConfiguration -InvalidCertificateAction $originalCertPolicy -Confirm:$false -Scope Session | Out-Null
+
+                return $true
+            } else {
+                Write-Log "Credential validation failed - no connection established" -Level Debug
+                return $false
+            }
         }
     }
     catch {
@@ -1058,6 +1094,223 @@ function Remove-ExpiredCredentials {
         Write-Log "Error during expired credential cleanup: $($_.Exception.Message)" -Level Warning
     }
 }
+
+#region Multi-vCenter Enhanced Linked Mode Support
+function Test-VCenterConnection {
+    <#
+    .SYNOPSIS
+        Tests connection to a single vCenter server
+    .PARAMETER Server
+        vCenter server FQDN or IP
+    .PARAMETER Credential
+        Authentication credential
+    .PARAMETER TimeoutSeconds
+        Connection timeout in seconds
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Server,
+
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCredential]$Credential,
+
+        [Parameter(Mandatory = $false)]
+        [int]$TimeoutSeconds = 30
+    )
+
+    try {
+        Write-Log "Testing connection to vCenter: $Server" -Level Debug
+
+        # Test network connectivity first
+        $networkTest = Test-NetConnection -ComputerName $Server -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction Stop
+        if (-not $networkTest) {
+            throw "Network connectivity failed to $Server on port 443"
+        }
+
+        # Test PowerCLI connection
+        $connection = Connect-VIServer -Server $Server -Credential $Credential -ErrorAction Stop -WarningAction SilentlyContinue
+
+        if ($connection) {
+            $result = @{
+                Server = $Server
+                Connected = $true
+                ConnectionObject = $connection
+                Version = $connection.Version
+                Build = $connection.Build
+                InstanceUuid = $connection.InstanceUuid
+                TestTime = Get-Date
+                Error = $null
+            }
+
+            Write-Log "Successfully connected to vCenter: $Server (Version: $($connection.Version), Build: $($connection.Build))" -Level Success
+            return $result
+        } else {
+            throw "Connection returned null"
+        }
+    }
+    catch {
+        $result = @{
+            Server = $Server
+            Connected = $false
+            ConnectionObject = $null
+            Version = $null
+            Build = $null
+            InstanceUuid = $null
+            TestTime = Get-Date
+            Error = $_.Exception.Message
+        }
+
+        Write-Log "Failed to connect to vCenter: $Server - $($_.Exception.Message)" -Level Warning
+        return $result
+    }
+}
+
+function Connect-ToMultipleVCenters {
+    <#
+    .SYNOPSIS
+        Establishes connections to multiple vCenter servers for Enhanced Linked Mode
+    .PARAMETER Credential
+        Authentication credential (same for all vCenters in Enhanced Linked Mode)
+    .RETURNS
+        Array of connection results with primary connection identified
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]
+        [System.Management.Automation.PSCredential]$Credential
+    )
+
+    try {
+        Write-Log "Initiating multi-vCenter Enhanced Linked Mode connections..." -Level Info
+
+        if (-not $script:Config.MultiVCenterMode) {
+            Write-Log "Multi-vCenter mode not enabled, using single vCenter connection" -Level Debug
+            $result = Test-VCenterConnection -Server $script:Config.vCenterServer -Credential $Credential
+            return @($result)
+        }
+
+        $connectionResults = @()
+        $connectionStrategy = $script:Config.MultiVCenter.ConnectionStrategy
+        $maxRetries = $script:Config.MultiVCenter.MaxConnectionRetries
+        $retryDelay = $script:Config.MultiVCenter.RetryDelaySeconds
+
+        Write-Log "Using connection strategy: $connectionStrategy" -Level Info
+        Write-Log "Processing $($script:Config.vCenterServers.Count) vCenter servers..." -Level Info
+
+        foreach ($vcenterInfo in $script:Config.vCenterServers) {
+            $server = $vcenterInfo.Server
+            $description = $vcenterInfo.Description
+            $priority = $vcenterInfo.Priority
+
+            Write-Log "Attempting connection to: $server ($description) [Priority: $priority]" -Level Info
+
+            $retryCount = 0
+            $connected = $false
+            $connectionResult = $null
+
+            while ($retryCount -lt $maxRetries -and -not $connected) {
+                if ($retryCount -gt 0) {
+                    Write-Log "Retry attempt $retryCount for $server..." -Level Debug
+                    Start-Sleep -Seconds $retryDelay
+                }
+
+                $connectionResult = Test-VCenterConnection -Server $server -Credential $Credential -TimeoutSeconds $script:Config.MultiVCenter.ConnectionTimeoutSeconds
+                $connected = $connectionResult.Connected
+                $retryCount++
+
+                if ($connected) {
+                    Write-Log "Successfully connected to $server on attempt $retryCount" -Level Success
+                } elseif ($retryCount -lt $maxRetries) {
+                    Write-Log "Connection failed to $server, retrying... ($($connectionResult.Error))" -Level Warning
+                }
+            }
+
+            # Add metadata to connection result
+            $connectionResult.Description = $description
+            $connectionResult.Priority = $priority
+            $connectionResult.IsPrimary = ($priority -eq 1)
+
+            $connectionResults += $connectionResult
+
+            # For PrimaryFirst strategy, stop after successful primary connection unless aggregation is enabled
+            if ($connectionStrategy -eq "PrimaryFirst" -and $connected -and $priority -eq 1 -and -not $script:Config.MultiVCenter.AggregateInventoryAcrossVCenters) {
+                Write-Log "Primary vCenter connected successfully, stopping connection attempts (PrimaryFirst strategy)" -Level Info
+                break
+            }
+        }
+
+        # Validate at least one connection succeeded
+        $successfulConnections = $connectionResults | Where-Object { $_.Connected }
+        if ($successfulConnections.Count -eq 0) {
+            throw "Failed to connect to any vCenter servers in the Enhanced Linked Mode environment"
+        }
+
+        Write-Log "Multi-vCenter connection summary: $($successfulConnections.Count) successful, $($connectionResults.Count - $successfulConnections.Count) failed" -Level Info
+
+        # Identify primary connection for main operations
+        $primaryConnection = $successfulConnections | Where-Object { $_.IsPrimary } | Select-Object -First 1
+        if (-not $primaryConnection) {
+            $primaryConnection = $successfulConnections | Sort-Object Priority | Select-Object -First 1
+            Write-Log "No primary vCenter connection found, using lowest priority connected server: $($primaryConnection.Server)" -Level Warning
+        }
+
+        # Set global connection information
+        $script:Config.ActiveVCenterConnections = $successfulConnections
+        $script:Config.PrimaryVCenterConnection = $primaryConnection
+        $script:Config.vCenterServer = $primaryConnection.Server  # Update for backward compatibility
+
+        Write-Log "Primary vCenter for operations: $($primaryConnection.Server)" -Level Info
+
+        return $connectionResults
+    }
+    catch {
+        Write-Log "Critical error in multi-vCenter connection process: $($_.Exception.Message)" -Level Error
+        throw
+    }
+}
+
+function Disconnect-FromMultipleVCenters {
+    <#
+    .SYNOPSIS
+        Cleanly disconnects from all vCenter servers
+    #>
+    [CmdletBinding()]
+    param()
+
+    try {
+        Write-Log "Disconnecting from all vCenter servers..." -Level Info
+
+        if ($script:Config.ActiveVCenterConnections) {
+            foreach ($connection in $script:Config.ActiveVCenterConnections) {
+                if ($connection.Connected -and $connection.ConnectionObject) {
+                    try {
+                        Disconnect-VIServer -Server $connection.ConnectionObject -Confirm:$false -Force -ErrorAction SilentlyContinue
+                        Write-Log "Disconnected from vCenter: $($connection.Server)" -Level Debug
+                    }
+                    catch {
+                        Write-Log "Error disconnecting from $($connection.Server): $($_.Exception.Message)" -Level Warning
+                    }
+                }
+            }
+        }
+
+        # Cleanup any remaining connections
+        try {
+            $global:DefaultVIServers | Disconnect-VIServer -Confirm:$false -Force -ErrorAction SilentlyContinue
+        }
+        catch {
+            # Ignore cleanup errors
+        }
+
+        Write-Log "vCenter disconnection completed" -Level Info
+    }
+    catch {
+        Write-Log "Error during vCenter disconnection: $($_.Exception.Message)" -Level Warning
+    }
+}
+#endregion
+
 function Initialize-Configuration {
     param()
     
@@ -1132,7 +1385,22 @@ function Initialize-Configuration {
         
         # Add environment-specific settings
         $script:Config.CurrentEnvironment = $Environment
-        $script:Config.vCenterServer = $envConfig.vCenterServer
+
+        # Multi-vCenter support: Handle both single and multiple vCenter configurations
+        if ($envConfig.vCenterServers -and $envConfig.vCenterServers.Count -gt 0 -and $script:Config.FeatureFlags.EnableMultiVCenterSupport) {
+            # Enhanced Linked Mode with multiple vCenters
+            $script:Config.vCenterServers = $envConfig.vCenterServers | Sort-Object Priority
+            $script:Config.vCenterServer = $script:Config.vCenterServers[0].Server  # Primary server for backward compatibility
+            $script:Config.MultiVCenterMode = $true
+            Write-Log "Multi-vCenter Enhanced Linked Mode enabled with $($script:Config.vCenterServers.Count) servers" -Level Info
+        } else {
+            # Single vCenter mode (backward compatibility)
+            $script:Config.vCenterServer = $envConfig.vCenterServer
+            $script:Config.vCenterServers = @(@{ Server = $envConfig.vCenterServer; Description = "Single vCenter"; Priority = 1 })
+            $script:Config.MultiVCenterMode = $false
+            Write-Log "Single vCenter mode enabled" -Level Info
+        }
+
         $script:Config.SSODomain = $envConfig.SSODomain
         $script:Config.DefaultCredentialUser = $envConfig.DefaultCredentialUser
         $script:Config.TagCategories = $envConfig.TagCategories
@@ -1359,18 +1627,47 @@ function Test-Prerequisites {
         }
         
         # Test network connectivity (skip in dry run or if explicitly disabled)
-        if (-not $DryRun -and -not $SkipNetworkTests -and $script:Config -and $script:Config.vCenterServer) {
-            Write-Log "Testing connectivity to vCenter: $($script:Config.vCenterServer)" -Level Debug
-            try {
-                $connection = Test-NetConnection -ComputerName $script:Config.vCenterServer -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction Stop
-                if ($connection) {
-                    Write-Log "Network connectivity to vCenter confirmed" -Level Success
-                } else {
-                    $issues += "Cannot reach vCenter server: $($script:Config.vCenterServer)"
+        if (-not $DryRun -and -not $SkipNetworkTests -and $script:Config) {
+            if ($script:Config.MultiVCenterMode -and $script:Config.vCenterServers) {
+                Write-Log "Testing connectivity to multiple vCenter servers..." -Level Debug
+                $connectivityIssues = @()
+
+                foreach ($vcenterInfo in $script:Config.vCenterServers) {
+                    $server = $vcenterInfo.Server
+                    try {
+                        Write-Log "Testing connectivity to vCenter: $server" -Level Debug
+                        $connection = Test-NetConnection -ComputerName $server -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction Stop
+                        if ($connection) {
+                            Write-Log "Network connectivity to $server confirmed" -Level Success
+                        } else {
+                            $connectivityIssues += "Cannot reach vCenter server: $server"
+                        }
+                    }
+                    catch {
+                        $connectivityIssues += "Network connectivity test failed for vCenter: $server - $($_.Exception.Message)"
+                    }
                 }
-            }
-            catch {
-                $warnings += "Could not test network connectivity: $($_.Exception.Message)"
+
+                # For multi-vCenter, only fail if ALL servers are unreachable
+                if ($connectivityIssues.Count -eq $script:Config.vCenterServers.Count) {
+                    $issues += $connectivityIssues
+                    Write-Log "All vCenter servers are unreachable" -Level Error
+                } elseif ($connectivityIssues.Count -gt 0) {
+                    Write-Log "Some vCenter servers are unreachable: $($connectivityIssues -join '; ')" -Level Warning
+                }
+            } elseif ($script:Config.vCenterServer) {
+                Write-Log "Testing connectivity to vCenter: $($script:Config.vCenterServer)" -Level Debug
+                try {
+                    $connection = Test-NetConnection -ComputerName $script:Config.vCenterServer -Port 443 -InformationLevel Quiet -WarningAction SilentlyContinue -ErrorAction Stop
+                    if ($connection) {
+                        Write-Log "Network connectivity to vCenter confirmed" -Level Success
+                    } else {
+                        $issues += "Cannot reach vCenter server: $($script:Config.vCenterServer)"
+                    }
+                }
+                catch {
+                    $warnings += "Could not test network connectivity: $($_.Exception.Message)"
+                }
             }
         }
         

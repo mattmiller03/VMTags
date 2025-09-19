@@ -12,7 +12,15 @@
     # Environment Configurations
     Environments = @{
         DEV = @{
+            # Single vCenter mode (backward compatibility)
             vCenterServer           =   "daisv0tp231.dir.ad.dla.mil"
+
+            # Multi-vCenter Enhanced Linked Mode support
+            # vCenterServers = @(
+            #     @{ Server = "daisv0tp231.dir.ad.dla.mil"; Description = "Primary DEV vCenter"; Priority = 1 }
+            #     @{ Server = "daisv0tp232.dir.ad.dla.mil"; Description = "Secondary DEV vCenter"; Priority = 2 }
+            # )
+
             SSODomain               =   "DLA-Test-Dev.local"
             DefaultCredentialUser   =   "administrator@DLA-Test-Dev.local"
             
@@ -43,7 +51,15 @@
         }
         
         PROD = @{
+            # Single vCenter mode (backward compatibility)
             vCenterServer           =   "daisv0pp241.dir.ad.dla.mil"
+
+            # Multi-vCenter Enhanced Linked Mode support
+            # vCenterServers = @(
+            #     @{ Server = "daisv0pp241.dir.ad.dla.mil"; Description = "Primary PROD vCenter Site A"; Priority = 1 }
+            #     @{ Server = "daisv0pp242.dir.ad.dla.mil"; Description = "Secondary PROD vCenter Site B"; Priority = 2 }
+            # )
+
             SSODomain               =   "DLA-Prod.local"
             DefaultCredentialUser   =   "administrator@DLA-Prod.local"
             
@@ -71,7 +87,15 @@
         }
         
         KLEB = @{
+            # Example of Enhanced Linked Mode configuration (multiple vCenters)
+            vCenterServers = @(
+                @{ Server = "klisv0pp251.dir.ad.dla.mil"; Description = "Primary KLEB vCenter"; Priority = 1 }
+                @{ Server = "klisv0pp252.dir.ad.dla.mil"; Description = "Secondary KLEB vCenter"; Priority = 2 }
+            )
+
+            # Single vCenter fallback (used if vCenterServers is not defined or empty)
             vCenterServer               =   "klisv0pp251.dir.ad.dla.mil"
+
             SSODomain                   =   "DLA-Kleber.local"
             DefaultCredentialUser       =   "administrator@DLA-KLEBER.local"
             
@@ -332,6 +356,37 @@
         EnableParallelProcessing = $true
         EnableCustomModuleLoading = $true
         EnableNetworkConnectivityTests = $true
+        EnableMultiVCenterSupport = $true
+    }
+
+    # Multi-vCenter Enhanced Linked Mode Settings
+    MultiVCenter = @{
+        # Connection strategy for Enhanced Linked Mode environments
+        ConnectionStrategy = "PrimaryFirst"  # Options: "PrimaryFirst", "LoadBalance", "FailoverOnly"
+
+        # Connection timeout and retry settings
+        ConnectionTimeoutSeconds = 30
+        MaxConnectionRetries = 3
+        RetryDelaySeconds = 5
+
+        # Failover behavior
+        EnableAutomaticFailover = $true
+        FailoverThresholdSeconds = 60
+
+        # Global inventory aggregation
+        AggregateInventoryAcrossVCenters = $true
+
+        # Parallel processing across vCenters
+        EnableParallelVCenterProcessing = $false  # Set to true for independent vCenter operations
+        MaxParallelVCenterConnections = 2
+
+        # Enhanced Linked Mode validation
+        ValidateLinkedModeStatus = $true
+        RequireSharedSSO = $true
+
+        # Logging and reporting
+        LogConnectionDetails = $true
+        SeparateLogsPerVCenter = $false
     }
     
     # Notification Settings - New section for alerts and notifications
