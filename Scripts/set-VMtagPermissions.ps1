@@ -854,6 +854,14 @@ function Process-FolderBasedPermissions {
                 Write-Log "Folder '$($folder.Name)': Found $($folderTags.Count) app tags" "INFO"
                 $folderTagsFound += $folderTags.Count
 
+                # Debug: List all tags found on this folder
+                Write-Log "Folder '$($folder.Name)': Tag details:" "DEBUG"
+                $tagIndex = 0
+                foreach ($debugTag in $folderTags) {
+                    $tagIndex++
+                    Write-Log "  Tag #$tagIndex`: '$($debugTag.Tag.Name)' (Category: '$($debugTag.Tag.Category.Name)')" "DEBUG"
+                }
+
                 # Get all VMs in this folder (recursively)
                 $vmsInFolder = Get-VM -Location $folder -ErrorAction SilentlyContinue |
                                Where-Object Name -notmatch '^(vCLS|VLC|stCtlVM)'
@@ -866,59 +874,72 @@ function Process-FolderBasedPermissions {
                 Write-Log "Folder '$($folder.Name)': Found $($vmsInFolder.Count) VMs to process" "INFO"
 
                 # Process each tag found on the folder
+                $processedTagCount = 0
                 foreach ($folderTagAssignment in $folderTags) {
+                    $processedTagCount++
                     $tagName = $folderTagAssignment.Tag.Name
 
-                    # Find the corresponding permission data for this tag
-                    $permissionRow = $AppPermissionData | Where-Object {
-                        $_.TagCategory -ieq $AppCategoryName -and $_.TagName -ieq $tagName
-                    }
+                    Write-Log "Folder '$($folder.Name)': Processing tag $processedTagCount of $($folderTags.Count): '$tagName'" "INFO"
 
-                    if (-not $permissionRow) {
+                    # Find ALL corresponding permission data for this tag (may be multiple rows for different roles)
+                    $permissionRows = @($AppPermissionData | Where-Object {
+                        $_.TagCategory -ieq $AppCategoryName -and $_.TagName -ieq $tagName
+                    })
+
+                    if ($permissionRows.Count -eq 0) {
                         Write-Log "Folder '$($folder.Name)': No permission mapping found for tag '$tagName'" "WARN"
                         continue
                     }
 
-                    # Build principal name
-                    $principal = "$($permissionRow.SecurityGroupDomain)\$($permissionRow.SecurityGroupName)"
+                    Write-Log "Folder '$($folder.Name)': Found $($permissionRows.Count) permission mappings for tag '$tagName'" "DEBUG"
 
-                    # Validate security group exists
-                    if (-not (Test-SsoGroupExistsSimple -Domain $permissionRow.SecurityGroupDomain -GroupName $permissionRow.SecurityGroupName)) {
-                        Write-Log "Folder '$($folder.Name)': Skipping permissions for principal '$principal' as SSO group was not found" "WARN"
-                        continue
-                    }
+                    # Process each permission mapping for this tag
+                    foreach ($permissionRow in $permissionRows) {
+                        # Build principal name
+                        $principal = "$($permissionRow.SecurityGroupDomain)\$($permissionRow.SecurityGroupName)"
 
-                    Write-Log "Folder '$($folder.Name)': Applying permissions for tag '$tagName' to $($vmsInFolder.Count) VMs" "INFO"
+                        # Validate security group exists
+                        if (-not (Test-SsoGroupExistsSimple -Domain $permissionRow.SecurityGroupDomain -GroupName $permissionRow.SecurityGroupName)) {
+                            Write-Log "Folder '$($folder.Name)': Skipping permissions for principal '$principal' as SSO group was not found" "WARN"
+                            continue
+                        }
 
-                    # Apply permissions to all VMs in the folder
-                    foreach ($vm in $vmsInFolder) {
-                        try {
-                            $result = Assign-PermissionIfNeeded -VM $vm -Principal $principal -RoleName $permissionRow.RoleName
-                            Track-PermissionAssignment -Result $result -VM $vm -Source "FolderPermissions"
+                        Write-Log "Folder '$($folder.Name)': Applying permissions for tag '$tagName' (role: $($permissionRow.RoleName)) to $($vmsInFolder.Count) VMs" "INFO"
 
-                            switch ($result.Action) {
-                                "Created" {
-                                    $vmPermissionsApplied++
-                                    $script:ExecutionSummary.PermissionsAssigned++
-                                    Write-Log "Folder '$($folder.Name)': Applied permission to VM '$($vm.Name)' for tag '$tagName'" "DEBUG"
-                                }
-                                "Skipped" {
-                                    $script:ExecutionSummary.PermissionsSkipped++
-                                    Write-Log "Folder '$($folder.Name)': Skipped permission for VM '$($vm.Name)' for tag '$tagName' - $($result.Reason)" "DEBUG"
-                                }
-                                "Failed" {
-                                    $script:ExecutionSummary.PermissionsFailed++
-                                    $script:ExecutionSummary.ErrorsEncountered++
-                                    $errors++
+                        # Apply permissions to all VMs in the folder
+                        foreach ($vm in $vmsInFolder) {
+                            try {
+                                $result = Assign-PermissionIfNeeded -VM $vm -Principal $principal -RoleName $permissionRow.RoleName
+                                Track-PermissionAssignment -Result $result -VM $vm -Source "FolderPermissions"
+
+                                switch ($result.Action) {
+                                    "Created" {
+                                        $vmPermissionsApplied++
+                                        $script:ExecutionSummary.PermissionsAssigned++
+                                        Write-Log "Folder '$($folder.Name)': Applied permission to VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName))" "DEBUG"
+                                    }
+                                    "Skipped" {
+                                        $script:ExecutionSummary.PermissionsSkipped++
+                                        Write-Log "Folder '$($folder.Name)': Skipped permission for VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName)) - $($result.Reason)" "DEBUG"
+                                    }
+                                    "Failed" {
+                                        $script:ExecutionSummary.PermissionsFailed++
+                                        $script:ExecutionSummary.ErrorsEncountered++
+                                        $errors++
+                                    }
                                 }
                             }
-                        }
-                        catch {
-                            Write-Log "Folder '$($folder.Name)': Error applying permissions to VM '$($vm.Name)' for tag '$tagName': $_" "ERROR"
-                            $errors++
+                            catch {
+                                Write-Log "Folder '$($folder.Name)': Error applying permissions to VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName)): $_" "ERROR"
+                                $errors++
+                            }
                         }
                     }
+
+                    Write-Log "Folder '$($folder.Name)': Completed processing tag '$tagName' ($processedTagCount of $($folderTags.Count))" "DEBUG"
                 }
+
+                Write-Log "Folder '$($folder.Name)': Finished processing all $($folderTags.Count) tags" "INFO"
             }
             catch {
                 Write-Log "Error processing folder '$($folder.Name)': $_" "ERROR"
@@ -948,6 +969,14 @@ function Process-FolderBasedPermissions {
                 Write-Log "Resource Pool '$($resourcePool.Name)': Found $($resourcePoolTags.Count) app tags" "INFO"
                 $resourcePoolTagsFound += $resourcePoolTags.Count
 
+                # Debug: List all tags found on this resource pool
+                Write-Log "Resource Pool '$($resourcePool.Name)': Tag details:" "DEBUG"
+                $rpTagIndex = 0
+                foreach ($debugTag in $resourcePoolTags) {
+                    $rpTagIndex++
+                    Write-Log "  Tag #$rpTagIndex`: '$($debugTag.Tag.Name)' (Category: '$($debugTag.Tag.Category.Name)')" "DEBUG"
+                }
+
                 # Get all VMs in this resource pool
                 $vmsInResourcePool = Get-VM -Location $resourcePool -ErrorAction SilentlyContinue |
                                      Where-Object Name -notmatch '^(vCLS|VLC|stCtlVM)'
@@ -960,59 +989,72 @@ function Process-FolderBasedPermissions {
                 Write-Log "Resource Pool '$($resourcePool.Name)': Found $($vmsInResourcePool.Count) VMs to process" "INFO"
 
                 # Process each tag found on the resource pool
+                $rpProcessedTagCount = 0
                 foreach ($resourcePoolTagAssignment in $resourcePoolTags) {
+                    $rpProcessedTagCount++
                     $tagName = $resourcePoolTagAssignment.Tag.Name
 
-                    # Find the corresponding permission data for this tag
-                    $permissionRow = $AppPermissionData | Where-Object {
-                        $_.TagCategory -ieq $AppCategoryName -and $_.TagName -ieq $tagName
-                    }
+                    Write-Log "Resource Pool '$($resourcePool.Name)': Processing tag $rpProcessedTagCount of $($resourcePoolTags.Count): '$tagName'" "INFO"
 
-                    if (-not $permissionRow) {
+                    # Find ALL corresponding permission data for this tag (may be multiple rows for different roles)
+                    $permissionRows = @($AppPermissionData | Where-Object {
+                        $_.TagCategory -ieq $AppCategoryName -and $_.TagName -ieq $tagName
+                    })
+
+                    if ($permissionRows.Count -eq 0) {
                         Write-Log "Resource Pool '$($resourcePool.Name)': No permission mapping found for tag '$tagName'" "WARN"
                         continue
                     }
 
-                    # Build principal name
-                    $principal = "$($permissionRow.SecurityGroupDomain)\$($permissionRow.SecurityGroupName)"
+                    Write-Log "Resource Pool '$($resourcePool.Name)': Found $($permissionRows.Count) permission mappings for tag '$tagName'" "DEBUG"
 
-                    # Validate security group exists
-                    if (-not (Test-SsoGroupExistsSimple -Domain $permissionRow.SecurityGroupDomain -GroupName $permissionRow.SecurityGroupName)) {
-                        Write-Log "Resource Pool '$($resourcePool.Name)': Skipping permissions for principal '$principal' as SSO group was not found" "WARN"
-                        continue
-                    }
+                    # Process each permission mapping for this tag
+                    foreach ($permissionRow in $permissionRows) {
+                        # Build principal name
+                        $principal = "$($permissionRow.SecurityGroupDomain)\$($permissionRow.SecurityGroupName)"
 
-                    Write-Log "Resource Pool '$($resourcePool.Name)': Applying permissions for tag '$tagName' to $($vmsInResourcePool.Count) VMs" "INFO"
+                        # Validate security group exists
+                        if (-not (Test-SsoGroupExistsSimple -Domain $permissionRow.SecurityGroupDomain -GroupName $permissionRow.SecurityGroupName)) {
+                            Write-Log "Resource Pool '$($resourcePool.Name)': Skipping permissions for principal '$principal' as SSO group was not found" "WARN"
+                            continue
+                        }
 
-                    # Apply permissions to all VMs in the resource pool
-                    foreach ($vm in $vmsInResourcePool) {
-                        try {
-                            $result = Assign-PermissionIfNeeded -VM $vm -Principal $principal -RoleName $permissionRow.RoleName
-                            Track-PermissionAssignment -Result $result -VM $vm -Source "ResourcePoolPermissions"
+                        Write-Log "Resource Pool '$($resourcePool.Name)': Applying permissions for tag '$tagName' (role: $($permissionRow.RoleName)) to $($vmsInResourcePool.Count) VMs" "INFO"
 
-                            switch ($result.Action) {
-                                "Created" {
-                                    $vmPermissionsApplied++
-                                    $script:ExecutionSummary.PermissionsAssigned++
-                                    Write-Log "Resource Pool '$($resourcePool.Name)': Applied permission to VM '$($vm.Name)' for tag '$tagName'" "DEBUG"
-                                }
-                                "Skipped" {
-                                    $script:ExecutionSummary.PermissionsSkipped++
-                                    Write-Log "Resource Pool '$($resourcePool.Name)': Skipped permission for VM '$($vm.Name)' for tag '$tagName' - $($result.Reason)" "DEBUG"
-                                }
-                                "Failed" {
-                                    $script:ExecutionSummary.PermissionsFailed++
-                                    $script:ExecutionSummary.ErrorsEncountered++
-                                    $errors++
+                        # Apply permissions to all VMs in the resource pool
+                        foreach ($vm in $vmsInResourcePool) {
+                            try {
+                                $result = Assign-PermissionIfNeeded -VM $vm -Principal $principal -RoleName $permissionRow.RoleName
+                                Track-PermissionAssignment -Result $result -VM $vm -Source "ResourcePoolPermissions"
+
+                                switch ($result.Action) {
+                                    "Created" {
+                                        $vmPermissionsApplied++
+                                        $script:ExecutionSummary.PermissionsAssigned++
+                                        Write-Log "Resource Pool '$($resourcePool.Name)': Applied permission to VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName))" "DEBUG"
+                                    }
+                                    "Skipped" {
+                                        $script:ExecutionSummary.PermissionsSkipped++
+                                        Write-Log "Resource Pool '$($resourcePool.Name)': Skipped permission for VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName)) - $($result.Reason)" "DEBUG"
+                                    }
+                                    "Failed" {
+                                        $script:ExecutionSummary.PermissionsFailed++
+                                        $script:ExecutionSummary.ErrorsEncountered++
+                                        $errors++
+                                    }
                                 }
                             }
-                        }
-                        catch {
-                            Write-Log "Resource Pool '$($resourcePool.Name)': Error applying permissions to VM '$($vm.Name)' for tag '$tagName': $_" "ERROR"
-                            $errors++
+                            catch {
+                                Write-Log "Resource Pool '$($resourcePool.Name)': Error applying permissions to VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName)): $_" "ERROR"
+                                $errors++
+                            }
                         }
                     }
+
+                    Write-Log "Resource Pool '$($resourcePool.Name)': Completed processing tag '$tagName' ($rpProcessedTagCount of $($resourcePoolTags.Count))" "DEBUG"
                 }
+
+                Write-Log "Resource Pool '$($resourcePool.Name)': Finished processing all $($resourcePoolTags.Count) tags" "INFO"
             }
             catch {
                 Write-Log "Error processing resource pool '$($resourcePool.Name)': $_" "ERROR"
