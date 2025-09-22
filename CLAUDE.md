@@ -4,14 +4,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repository Overview
 
-VMTags-v2.0 is a high-performance PowerShell automation system for managing vCenter VM tags and permissions at enterprise scale. The system processes thousands of VMs with parallel processing capabilities and provides 70-85% performance improvements over previous versions.
+VMTags-v2.0 is a high-performance PowerShell automation system for managing vCenter VM tags and permissions at enterprise scale. This is a key component of the larger vCenter Migration Tool suite that includes WPF applications, PowerShell scripts, and enterprise migration utilities. The system processes thousands of VMs with parallel processing capabilities and provides 70-85% performance improvements over previous versions.
 
 ## Commands
 
 ### Primary Execution Commands
 
 ```powershell
-# Using Launcher (Recommended)
+# Using Launcher (Recommended - Updated file name)
 .\VM_TagPermissions_Launcher.ps1 -Environment KLEB -UseStoredCredentials
 .\VM_TagPermissions_Launcher.ps1 -Environment DEV -UseStoredCredentials -ForceDebug
 
@@ -242,3 +242,23 @@ Automation mode support enables seamless integration with CI/CD pipelines, Aria 
 - PowerShell 7.0+ for optimal parallel processing performance
 - Minimum 4GB RAM recommended for parallel processing scenarios
 - Multi-core processor recommended for thread-based operations
+
+## Integration with vCenter Migration Tool Suite
+
+This VMTags-v2.0 component integrates with the broader vCenter Migration Tool project:
+
+### Integration Points
+- **Shared Configuration**: Uses similar environment patterns (DEV, PROD, KLEB, OT) as the main migration tool
+- **PowerShell Integration**: Can be called from the main WPF application's PowerShell services
+- **Logging Standards**: Follows the same logging patterns as other migration components
+- **Security Patterns**: Uses similar credential management and security models
+
+### Usage in Migration Workflows
+- **Pre-Migration**: Tag VMs appropriately before migration to ensure proper permissions
+- **Post-Migration**: Re-apply tags and permissions after VM migration to new vCenter
+- **Validation**: Verify tag assignments as part of migration validation processes
+
+### Cross-Component Dependencies
+- May be called by `HybridPowerShellService.cs` from the main migration application
+- Shares CSV data format standards with other migration tools
+- Uses compatible logging with `PowerShellLoggingService.cs` patterns
