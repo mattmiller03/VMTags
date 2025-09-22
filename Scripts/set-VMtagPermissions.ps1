@@ -643,7 +643,7 @@ function Process-HierarchicalTagInheritance {
         Write-Log "Processing $($allVMs.Count) VMs for hierarchical tag inheritance" "INFO"
 
         # Enhanced Linked Mode deduplication for hierarchical inheritance
-        $processedVMsFile = Join-Path $LogPath "ProcessedVMs_Inheritance_$($Environment)_$(Get-Date -Format 'yyyyMMdd').json"
+        $processedVMsFile = Join-Path $script:logFolder "ProcessedVMs_Inheritance_$($Environment)_$(Get-Date -Format 'yyyyMMdd').json"
         $processedInheritanceVMs = @{}
 
         # Load existing processed VMs if file exists
@@ -1922,7 +1922,7 @@ try {
     Write-Log "Found $($allVms.Count) VMs to check for OS patterns (after filtering system VMs)." "INFO"
 
     # Enhanced Linked Mode deduplication: Create a tracking file for processed VMs across vCenter connections
-    $processedVMsFile = Join-Path $LogPath "ProcessedVMs_$($Environment)_$(Get-Date -Format 'yyyyMMdd').json"
+    $processedVMsFile = Join-Path $script:logFolder "ProcessedVMs_$($Environment)_$(Get-Date -Format 'yyyyMMdd').json"
     $processedVMs = @{}
 
     # Load existing processed VMs if file exists (for multi-vCenter scenarios)
