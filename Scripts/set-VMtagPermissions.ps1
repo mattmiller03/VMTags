@@ -1303,12 +1303,28 @@ function Assign-PermissionIfNeeded {
     
     try {
         # Check if role exists, create if needed
-        $role = Get-VIRole -Name $RoleName -ErrorAction SilentlyContinue
-        if (-not $role) {
+        $roles = @(Get-VIRole -Name $RoleName -ErrorAction SilentlyContinue)
+
+        if ($roles.Count -eq 0) {
+            # Role doesn't exist, try to create it
             $role = Clone-RoleFromSupportAdminTemplate -NewRoleName $RoleName
-        }
-        if (-not $role) { 
-            throw "Could not find or create role '$($RoleName)'." 
+            if (-not $role) {
+                throw "Could not find or create role '$($RoleName)'."
+            }
+        } elseif ($roles.Count -eq 1) {
+            # Exactly one role found - perfect
+            $role = $roles[0]
+        } else {
+            # Multiple roles found - try to find exact match or use first one
+            Write-Log "WARNING: Multiple roles found with name '$RoleName' ($($roles.Count) matches). Using first match." "WARN"
+            $exactMatch = $roles | Where-Object { $_.Name -ceq $RoleName }
+            if ($exactMatch) {
+                $role = $exactMatch[0]  # Use first exact match if multiple exact matches
+                Write-Log "Found exact case-sensitive match for role '$RoleName'" "DEBUG"
+            } else {
+                $role = $roles[0]  # Use first role if no exact match
+                Write-Log "Using first role match: '$($role.Name)' for requested role '$RoleName'" "DEBUG"
+            }
         }
         
         # Check for existing permissions - FIXED LOGIC
@@ -1347,6 +1363,14 @@ function Assign-PermissionIfNeeded {
             }
         }
         
+        # Validate we have a single role object before assignment
+        if (-not $role) {
+            throw "Role object is null after lookup/creation for role '$RoleName'"
+        }
+        if ($role -is [array]) {
+            throw "Role object is still an array after processing. This should not happen. Role count: $($role.Count)"
+        }
+
         # Assign the new permission
         Write-Log "Assigning permission: VM='$($VM.Name)', Principal='$($Principal)', Role='$($role.Name)'" "INFO"
         $newPermission = New-VIPermission -Entity $VM -Principal $Principal -Role $role -Propagate:$false -ErrorAction Stop
