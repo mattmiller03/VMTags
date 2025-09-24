@@ -357,13 +357,13 @@
         EnableCustomModuleLoading = $true
         EnableNetworkConnectivityTests = $true
         EnableMultiVCenterSupport = $true
-        EnableHierarchicalTagInheritance = $false  # Enable automatic tag inheritance from folders/resource pools
+        EnableHierarchicalTagInheritance = $true   # Enable automatic tag inheritance from folders/resource pools
     }
 
     # Hierarchical Tag Inheritance Settings
     HierarchicalInheritance = @{
         # Enable/disable hierarchical tag inheritance
-        Enabled = $false  # Set to true to enable automatic inheritance
+        Enabled = $true   # Set to true to enable automatic inheritance
 
         # Categories to inherit from parent containers (folders and resource pools)
         # Default: only inherit App team tags for permission management

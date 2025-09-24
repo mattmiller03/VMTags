@@ -2323,7 +2323,14 @@ function Start-MainScript {
         }
 
         # Add hierarchical inheritance parameters if enabled
-        if ($script:Config.HierarchicalInheritance -and $script:Config.HierarchicalInheritance.Enabled) {
+        $hierarchicalEnabled = $false
+        if ($script:Config.FeatureFlags -and $script:Config.FeatureFlags.EnableHierarchicalTagInheritance) {
+            if ($script:Config.HierarchicalInheritance -and $script:Config.HierarchicalInheritance.Enabled) {
+                $hierarchicalEnabled = $true
+            }
+        }
+
+        if ($hierarchicalEnabled) {
             Write-Log "Adding hierarchical tag inheritance parameters" -Level Debug
             $scriptArgs += '-EnableHierarchicalInheritance'
 
