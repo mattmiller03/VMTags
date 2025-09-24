@@ -43,9 +43,53 @@ We're replacing JavaScript environment detection logic with a visual Decision El
    - **Simple Mode** ❌ - Limited to basic equality comparisons
    - **Advanced Mode** ✅ - Supports complex JavaScript expressions like `indexOf()`
 
-### Step 3: Configure Decision Logic
+### Step 3: Configure Output Bindings for Validate Input Task
 
-4. **Switch to Decision Logic Tab**
+4. **CRITICAL: Configure Output Bindings**
+
+   Before configuring the Decision Element, you MUST set up output bindings in the "Validate Input" task:
+
+   1. **Select "Validate Input" scriptable task**
+   2. **Properties Panel** → **"Binding"** tab
+   3. **"Out Attributes" section** → Click **"Add"** for each variable:
+
+   **Required Output Attributes:**
+   ```
+   Output Attribute 1:
+   - Name: vmName
+   - Type: string
+   - Bind to: vmName
+   - Description: VM name from input
+
+   Output Attribute 2:
+   - Name: action
+   - Type: string
+   - Bind to: action
+   - Description: Action to perform
+
+   Output Attribute 3:
+   - Name: folderPath
+   - Type: string
+   - Bind to: folderPath
+   - Description: VM folder path for environment detection
+
+   Output Attribute 4:
+   - Name: vmFolder
+   - Type: VC:Folder
+   - Bind to: vmFolder
+   - Description: VM parent folder object
+   ```
+
+   **⚠️ Without Output Bindings, the Decision Element cannot access these variables!**
+
+   **Verification:**
+   - Check that all JavaScript variables (vmName, action, folderPath, vmFolder) have corresponding output bindings
+   - Ensure "Bind to" field matches the JavaScript variable name exactly
+   - Save the scriptable task before proceeding
+
+### Step 4: Configure Decision Logic
+
+5. **Switch to Decision Logic Tab**
    - In the Decision Element properties, click the **"Decision Logic"** tab
    - You'll see a table for configuring conditions
 
@@ -283,8 +327,17 @@ When **Simple Mode** is enabled, you'll see:
 
 **Issue 1: "folderPath is undefined"**
 ```
-Solution: Ensure the "Validate Input" scriptable task creates the folderPath attribute:
+Solution: Two-part fix required:
+
+Part A: Ensure JavaScript variable is created in "Validate Input" task:
 folderPath = pathParts.join("/").toLowerCase();
+
+Part B: CRITICAL - Configure Output Binding:
+1. Select "Validate Input" scriptable task
+2. Properties → Binding tab → Out Attributes
+3. Add output binding: Name=folderPath, Type=string, Bind to=folderPath
+
+Without Part B, the Decision Element cannot access the variable!
 ```
 
 **Issue 2: Decision always selects DEV**
