@@ -272,5 +272,4 @@ function Test-AriaServiceCredentials {
     }
 }
 
-# Export functions for module usage
-Export-ModuleMember -Function Get-AriaServiceCredentials, Test-AriaServiceCredentials
+# Functions are available when script is dot-sourced

@@ -117,6 +117,71 @@ Param(
 
 #region A) Credential Loading and Configs
 # Add this credential loading logic at the beginning of your script
+
+# Check for Aria Operations execution environment
+function Test-AriaExecution {
+    $ariaIndicators = @(
+        'ARIA_EXECUTION',
+        'AUTOMATION_MODE',
+        'ARIA_NO_CREDENTIAL_INJECTION',
+        'VRO_WORKFLOW_ID',
+        'VRO_DEBUG'
+    )
+
+    foreach ($indicator in $ariaIndicators) {
+        $value = [System.Environment]::GetEnvironmentVariable($indicator)
+        if ($value) {
+            if ($indicator -eq 'VRO_DEBUG' -and $value -eq '1') {
+                $ariaNoCredInject = [System.Environment]::GetEnvironmentVariable('ARIA_NO_CREDENTIAL_INJECTION')
+                if ($ariaNoCredInject -eq '1') {
+                    Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Aria Operations execution detected via: VRO_DEBUG=1 AND ARIA_NO_CREDENTIAL_INJECTION=1" -ForegroundColor Yellow
+                    return $true
+                }
+            }
+            elseif ($indicator -eq 'AUTOMATION_MODE' -and $value -eq 'ARIA_OPERATIONS') {
+                Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Aria Operations execution detected via: AUTOMATION_MODE=ARIA_OPERATIONS" -ForegroundColor Yellow
+                return $true
+            }
+            elseif ($indicator -ne 'VRO_DEBUG' -and $indicator -ne 'AUTOMATION_MODE') {
+                Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Aria Operations execution detected via: $indicator=$value" -ForegroundColor Yellow
+                return $true
+            }
+        }
+    }
+    return $false
+}
+
+# Load Aria service account credentials if in Aria execution context
+if (-not $Credential -and (Test-AriaExecution)) {
+    Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Attempting to retrieve Aria service account credentials..." -ForegroundColor Yellow
+
+    try {
+        # Load the Get-AriaServiceCredentials functions
+        $getAriaScriptPath = Join-Path $PSScriptRoot "..\Get-AriaServiceCredentials.ps1"
+        if (Test-Path $getAriaScriptPath) {
+            . $getAriaScriptPath
+
+            if ($Environment) {
+                $Credential = Get-AriaServiceCredentials -Environment $Environment -Verbose
+                if ($Credential) {
+                    Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [SUCCESS] Successfully retrieved Aria service account credentials for user: $($Credential.UserName)" -ForegroundColor Green
+                    Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Using Aria service account credentials for vCenter authentication" -ForegroundColor Green
+                } else {
+                    Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [WARNING] No Aria service account credentials found, falling back to regular credential methods" -ForegroundColor Yellow
+                }
+            } else {
+                Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [WARNING] Environment parameter not provided, cannot retrieve Aria service account credentials" -ForegroundColor Yellow
+            }
+        } else {
+            Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [WARNING] Get-AriaServiceCredentials.ps1 not found at: $getAriaScriptPath" -ForegroundColor Yellow
+        }
+    }
+    catch {
+        Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [WARNING] Failed to retrieve Aria service account credentials: $_" -ForegroundColor Yellow
+        Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Falling back to regular credential methods" -ForegroundColor Yellow
+    }
+}
+
 if ($CredentialPath) {
     # Handle special dry run mode
     if ($CredentialPath -eq "DRYRUN_MODE") {
@@ -126,21 +191,26 @@ if ($CredentialPath) {
         $Credential = New-Object System.Management.Automation.PSCredential("DryRunUser", $securePassword)
     }
     elseif (Test-Path $CredentialPath) {
-        Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Loading credentials from launcher..." -ForegroundColor Green
-        try {
-            $credentialMetadata = Import-Csv -Path $CredentialPath
-            $credentialFile = $credentialMetadata.CredentialFile
-            
-            if (Test-Path $credentialFile) {
-                $Credential = Import-Clixml -Path $credentialFile
-                Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Credentials loaded successfully for user: $($Credential.UserName)" -ForegroundColor Green
-            } else {
-                throw "Credential file not found: $credentialFile"
+        # Only load from file if we don't already have Aria service account credentials
+        if (-not $Credential) {
+            Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Loading credentials from launcher..." -ForegroundColor Green
+            try {
+                $credentialMetadata = Import-Csv -Path $CredentialPath
+                $credentialFile = $credentialMetadata.CredentialFile
+
+                if (Test-Path $credentialFile) {
+                    $Credential = Import-Clixml -Path $credentialFile
+                    Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Credentials loaded successfully for user: $($Credential.UserName)" -ForegroundColor Green
+                } else {
+                    throw "Credential file not found: $credentialFile"
+                }
             }
-        }
-        catch {
-            Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [ERROR] Failed to load credentials from file: $_" -ForegroundColor Red
-            throw
+            catch {
+                Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [ERROR] Failed to load credentials from file: $_" -ForegroundColor Red
+                throw
+            }
+        } else {
+            Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Using Aria service account credentials instead of launcher credentials" -ForegroundColor Green
         }
     }
     else {
