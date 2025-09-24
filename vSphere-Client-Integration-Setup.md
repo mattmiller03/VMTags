@@ -144,51 +144,117 @@ Create the following workflows in Aria Orchestrator:
    - Description: `Apply tag-based permissions to VM from vSphere Client`
 
 2. **Define Input Parameters**
-   ```javascript
-   // Input Parameters
-   vm (VC:VirtualMachine) - VM selected from vSphere Client
-   environment (string) - Target environment [DEV, PROD, KLEB, OT]
-   action (string) - Action to perform [UpdatePermissions, SyncAllTags, ApplyContainerPermissions, ValidatePermissions]
-   ```
 
-3. **Workflow Schema**
+   Create these input parameters in the workflow:
+   - `vm` (Type: VC:VirtualMachine) - VM selected from vSphere Client
+   - `environment` (Type: string) - Target environment (optional, auto-detected if empty)
+   - `action` (Type: string) - Action to perform (default: "UpdatePermissions")
+
+3. **Workflow Schema - Scriptable Task Code**
+
+   **Scriptable Task 1: "Validate Input and Prepare"**
    ```javascript
-   // Scriptable Task: Validate Input
+   // Validate VM input
    if (!vm) {
        throw "No VM selected. Please select a VM and try again.";
    }
+
    var vmName = vm.name;
    System.log("Processing VM: " + vmName);
 
-   // Scriptable Task: Detect Environment
-   if (!environment || environment === "") {
-       environment = detectEnvironmentFromVM(vm);
+   // Set default action if not provided
+   if (!action || action === "") {
+       action = "UpdatePermissions";
    }
-   System.log("Target Environment: " + environment);
 
-   // Scriptable Task: Execute VMTags
-   // Get the configured PowerShell host
-   var powerShellHost = System.getModule("com.vmware.library.powershell").getPowerShellHost("VMTags-PowerShell-Host");
+   // Auto-detect environment if not provided
+   if (!environment || environment === "") {
+       // Simple environment detection from VM folder or datacenter
+       var folder = vm.parent;
+       var envDetected = "DEV"; // default
+
+       // Check folder hierarchy for environment indicators
+       while (folder && folder.name !== "vm") {
+           var folderName = folder.name.toLowerCase();
+           if (folderName.indexOf("prod") >= 0) {
+               envDetected = "PROD";
+               break;
+           } else if (folderName.indexOf("kleb") >= 0) {
+               envDetected = "KLEB";
+               break;
+           } else if (folderName.indexOf("ot") >= 0) {
+               envDetected = "OT";
+               break;
+           }
+           folder = folder.parent;
+       }
+       environment = envDetected;
+   }
+
+   System.log("Target Environment: " + environment);
+   System.log("Action: " + action);
+   ```
+
+   **Scriptable Task 2: "Execute PowerShell Script"**
+   ```javascript
+   // Get PowerShell hosts from inventory
+   var powerShellHosts = Server.findAllForType("PowerShell:PowerShellHost");
+   var powerShellHost = null;
+
+   // Find the specific PowerShell host
+   for (var i = 0; i < powerShellHosts.length; i++) {
+       if (powerShellHosts[i].name === "VMTags-PowerShell-Host") {
+           powerShellHost = powerShellHosts[i];
+           break;
+       }
+   }
 
    if (!powerShellHost) {
-       throw "PowerShell host 'VMTags-PowerShell-Host' not found. Please verify PowerShell host configuration.";
+       throw "PowerShell host 'VMTags-PowerShell-Host' not found in inventory.\n" +
+             "Please verify:\n" +
+             "1. PowerShell host is configured in Inventory → PowerShell\n" +
+             "2. Host name matches exactly: 'VMTags-PowerShell-Host'\n" +
+             "3. Connection status shows 'Connected'";
    }
 
-   // Prepare the PowerShell command
+   System.log("Using PowerShell host: " + powerShellHost.name + " (" + powerShellHost.hostName + ")");
+
+   // Build PowerShell command
    var scriptPath = "C:\\VMTags-v2.0\\Invoke-VMTagsFromvSphere.ps1";
-   var command = scriptPath + " -VMName '" + vmName + "' -Environment " + environment + " -Action " + action + " -EnableDebug";
+   var psCommand = "& '" + scriptPath + "' -VMName '" + vmName + "' -Environment " + environment + " -Action " + action + " -EnableDebug";
 
-   System.log("Executing PowerShell command: " + command);
-   System.log("PowerShell host: " + powerShellHost.name);
+   System.log("Executing PowerShell command: " + psCommand);
 
-   // Execute the script on the remote PowerShell host
-   var result = System.getModule("com.vmware.library.powershell").invokeScript(powerShellHost, command);
+   // Execute PowerShell script
+   var psResult = powerShellHost.invokeScript(psCommand);
 
-   if (result.exitCode !== 0) {
-       throw "VMTags execution failed: " + result.error;
+   if (!psResult) {
+       throw "PowerShell execution returned null result";
    }
 
-   System.log("VMTags completed successfully for VM: " + vmName);
+   System.log("PowerShell execution completed");
+   System.log("Exit Code: " + psResult.exitCode);
+   System.log("Output: " + psResult.invocationResult);
+
+   if (psResult.exitCode !== 0) {
+       var errorMsg = "VMTags execution failed with exit code: " + psResult.exitCode;
+       if (psResult.invocationResult) {
+           errorMsg += "\nOutput: " + psResult.invocationResult;
+       }
+       throw errorMsg;
+   }
+
+   // Return success result
+   var result = {
+       success: true,
+       vmName: vmName,
+       environment: environment,
+       action: action,
+       output: psResult.invocationResult,
+       message: "VMTags processing completed successfully for VM: " + vmName
+   };
+
+   System.log("VMTags workflow completed successfully for VM: " + vmName);
    ```
 
 #### 3.2 Create Specialized Workflows
