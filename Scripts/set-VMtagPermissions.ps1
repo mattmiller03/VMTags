@@ -1713,6 +1713,7 @@ try {
     
     # Connect to vCenter
     Write-Log "Connecting to vCenter '$($vCenterServer)'..." "INFO"
+    Write-Log "Setting PowerCLI certificate policy to 'Ignore' for vCenter connectivity" "DEBUG"
     Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false | Out-Null
     $vc = Connect-VIServer -Server $vCenterServer -Credential $Credential -ErrorAction Stop
     Write-Log "Connected to vCenter $($vc.Name) (v$($vc.Version))." "INFO"
@@ -2428,14 +2429,8 @@ finally {
         }
     }
     
-    # Reset PowerCLI certificate policy
-    try { 
-        Set-PowerCLIConfiguration -InvalidCertificateAction Warn -Confirm:$false | Out-Null 
-        Write-Log "PowerCLI certificate policy reset to Warn." "INFO"
-    }
-    catch { 
-        Write-Log "Failed to reset certificate policy: $_" "WARN" 
-    }
+    # PowerCLI certificate policy left as 'Ignore' for continued use
+    Write-Log "PowerCLI certificate policy maintained as 'Ignore' for subsequent operations." "INFO"
     
     Write-Log "Script execution finished." "INFO"
     Write-Log "Log files saved to: $script:logFolder" "INFO"
