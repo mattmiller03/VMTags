@@ -1416,21 +1416,15 @@ function Assign-PermissionIfNeeded {
             }
         }
         
-        # Check for conflicting permissions (same principal, different role)
-        $conflictingPermission = $existingPermissions | Where-Object {
+        # Check for additional permissions (same principal, different role) - ALLOW MULTIPLE ROLES
+        $additionalPermissions = $existingPermissions | Where-Object {
             $_.Principal -eq $Principal -and $_.Role -ne $RoleName
         }
-        
-        if ($conflictingPermission) {
-            Write-Log "WARNING: Conflicting permission found for VM='$($VM.Name)', Principal='$($Principal)'. Existing Role='$($conflictingPermission.Role)', New Role='$($RoleName)'" "WARN"
-            # You can choose to skip or replace - for now we'll skip
-            return @{
-                Action = "Skipped"
-                Reason = "Conflicting permission exists"
-                Principal = $Principal
-                ExistingRole = $conflictingPermission.Role
-                RequestedRole = $RoleName
-            }
+
+        if ($additionalPermissions) {
+            $existingRoles = ($additionalPermissions | ForEach-Object { $_.Role }) -join ', '
+            Write-Log "INFO: Principal '$($Principal)' already has role(s) [$existingRoles] on VM='$($VM.Name)'. Adding additional role '$($RoleName)'" "INFO"
+            # Continue with assignment - vCenter supports multiple roles for same principal
         }
         
         # Validate we have a single role object before assignment
@@ -2368,6 +2362,26 @@ try {
     Write-Log "Permissions Successfully Assigned: $totalPermissionsAssigned" "INFO"
     Write-Log "Permissions Skipped (duplicates/conflicts): $totalPermissionsSkipped" "INFO"
     Write-Log "Permission Assignment Failures: $totalPermissionsFailed" "INFO"
+
+    # Multi-Role Assignment Analysis
+    $multiRoleAssignments = $script:PermissionResults | Group-Object VMName, Principal |
+        Where-Object { $_.Count -gt 1 -and ($_.Group | Where-Object { $_.Action -eq "Created" }).Count -gt 1 }
+
+    if ($multiRoleAssignments.Count -gt 0) {
+        Write-Log "=== Multi-Role Assignment Analysis ===" "INFO"
+        Write-Log "VMs with Multi-Role Assignments: $($multiRoleAssignments.Count)" "INFO"
+
+        foreach ($assignment in $multiRoleAssignments | Select-Object -First 10) {
+            $vmName = $assignment.Group[0].VMName
+            $principal = $assignment.Group[0].Principal
+            $roles = ($assignment.Group | Where-Object { $_.Action -eq "Created" } | ForEach-Object { $_.Role }) -join ', '
+            Write-Log "  VM: '$vmName', Principal: '$principal', Roles: [$roles]" "INFO"
+        }
+
+        if ($multiRoleAssignments.Count -gt 10) {
+            Write-Log "  ... and $($multiRoleAssignments.Count - 10) more multi-role assignments" "INFO"
+        }
+    }
     Write-Log "=== Folder and Resource Pool Based Permission Propagation Results ===" "INFO"
     Write-Log "Folders Processed: $($script:ExecutionSummary.FolderBasedPermissions.FoldersProcessed)" "INFO"
     Write-Log "Folder Tags Found: $($script:ExecutionSummary.FolderBasedPermissions.FolderTagsFound)" "INFO"
