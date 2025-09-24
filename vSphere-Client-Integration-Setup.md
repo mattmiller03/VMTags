@@ -150,9 +150,14 @@ Create the following workflows in Aria Orchestrator:
    - `environment` (Type: string) - Target environment (optional, auto-detected if empty)
    - `action` (Type: string) - Action to perform (default: "UpdatePermissions")
 
-3. **Workflow Schema - Scriptable Task Code**
+3. **Workflow Schema Design**
 
-   **Scriptable Task 1: "Validate Input and Prepare"**
+   **Schema Elements:**
+   ```
+   Start → Validate Input → Environment Detection → Execute PowerShell → End
+   ```
+
+   **Element 1: Scriptable Task - "Validate Input"**
    ```javascript
    // Validate VM input
    if (!vm) {
@@ -167,36 +172,51 @@ Create the following workflows in Aria Orchestrator:
        action = "UpdatePermissions";
    }
 
-   // Auto-detect environment if not provided
-   if (!environment || environment === "") {
-       // Simple environment detection from VM folder or datacenter
-       var folder = vm.parent;
-       var envDetected = "DEV"; // default
-
-       // Check folder hierarchy for environment indicators
-       while (folder && folder.name !== "vm") {
-           var folderName = folder.name.toLowerCase();
-           if (folderName.indexOf("prod") >= 0) {
-               envDetected = "PROD";
-               break;
-           } else if (folderName.indexOf("kleb") >= 0) {
-               envDetected = "KLEB";
-               break;
-           } else if (folderName.indexOf("ot") >= 0) {
-               envDetected = "OT";
-               break;
-           }
-           folder = folder.parent;
-       }
-       environment = envDetected;
-   }
-
-   System.log("Target Environment: " + environment);
+   System.log("VM Name: " + vmName);
    System.log("Action: " + action);
+
+   // Create workflow attributes for environment detection
+   vmFolder = vm.parent;
+   folderPath = "";
+
+   // Build folder path for decision element
+   var currentFolder = vmFolder;
+   var pathParts = [];
+   while (currentFolder && currentFolder.name !== "vm") {
+       pathParts.unshift(currentFolder.name);
+       currentFolder = currentFolder.parent;
+   }
+   folderPath = pathParts.join("/").toLowerCase();
+
+   System.log("VM Folder Path: " + folderPath);
    ```
 
-   **Scriptable Task 2: "Execute PowerShell Script"**
+   **Element 2: Decision Element - "Determine Environment"**
+
+   **Decision Logic:**
+   - **Condition 1**: `folderPath.indexOf("prod") >= 0` → **Output: "PROD"**
+   - **Condition 2**: `folderPath.indexOf("kleb") >= 0` → **Output: "KLEB"**
+   - **Condition 3**: `folderPath.indexOf("ot") >= 0` → **Output: "OT"**
+   - **Default**: → **Output: "DEV"**
+
+   **Outputs/Transitions:**
+   - **PROD Branch** → Connect to "Execute PowerShell (PROD)"
+   - **KLEB Branch** → Connect to "Execute PowerShell (KLEB)"
+   - **OT Branch** → Connect to "Execute PowerShell (OT)"
+   - **DEV Branch** → Connect to "Execute PowerShell (DEV)"
+
+   **Element 3: Scriptable Task - "Execute PowerShell Script"**
+
+   *Note: Create separate scriptable tasks for each environment, or use a single task with environment passed as workflow attribute*
+
+   **Option A: Single Scriptable Task (Recommended)**
    ```javascript
+   // Environment is now determined by Decision Element and passed as workflow attribute
+   // This scriptable task receives the environment from the Decision Element's output branch
+
+   // Log the environment determined by Decision Element
+   System.log("Environment determined: " + targetEnvironment); // Set by Decision Element
+
    // Get PowerShell hosts from inventory
    var powerShellHosts = Server.findAllForType("PowerShell:PowerShellHost");
    var powerShellHost = null;
@@ -219,9 +239,9 @@ Create the following workflows in Aria Orchestrator:
 
    System.log("Using PowerShell host: " + powerShellHost.name + " (" + powerShellHost.hostName + ")");
 
-   // Build PowerShell command
+   // Build PowerShell command using environment from Decision Element
    var scriptPath = "C:\\VMTags-v2.0\\Invoke-VMTagsFromvSphere.ps1";
-   var psCommand = "& '" + scriptPath + "' -VMName '" + vmName + "' -Environment " + environment + " -Action " + action + " -EnableDebug";
+   var psCommand = "& '" + scriptPath + "' -VMName '" + vmName + "' -Environment " + targetEnvironment + " -Action " + action + " -EnableDebug";
 
    System.log("Executing PowerShell command: " + psCommand);
 
@@ -245,17 +265,20 @@ Create the following workflows in Aria Orchestrator:
    }
 
    // Return success result
-   var result = {
+   var workflowResult = {
        success: true,
        vmName: vmName,
-       environment: environment,
+       environment: targetEnvironment,
        action: action,
        output: psResult.invocationResult,
        message: "VMTags processing completed successfully for VM: " + vmName
    };
 
-   System.log("VMTags workflow completed successfully for VM: " + vmName);
+   System.log("VMTags workflow completed successfully for VM: " + vmName + " in environment: " + targetEnvironment);
    ```
+
+   **Option B: Environment-Specific Tasks**
+   Create separate scriptable tasks for each environment (PROD, KLEB, OT, DEV) with hard-coded environment values. Each task contains the same PowerShell execution code but with different environment parameters.
 
 #### 3.2 Create Specialized Workflows
 

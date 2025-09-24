@@ -37,9 +37,13 @@ The vSphere Client integration allows users to right-click on VMs and execute VM
 
 **Workflow Steps**:
 
-**Complete Workflow JavaScript Code:**
+**Workflow Schema Design with Decision Element:**
 
-**Scriptable Task 1: "Validate and Prepare"**
+```
+Start → Validate Input → Decision Element (Environment) → Execute PowerShell → End
+```
+
+**Element 1: Scriptable Task - "Validate Input and Prepare"**
 ```javascript
 // Validate VM object
 if (!vm) {
@@ -54,32 +58,50 @@ if (!action || action === "") {
     action = "UpdatePermissions";
 }
 
-// Auto-detect environment if not provided
-if (!environment || environment === "") {
-    var folder = vm.parent;
-    var envDetected = "DEV"; // default
+System.log("VM Name: " + vmName);
+System.log("Action: " + action);
 
-    // Check folder hierarchy for environment indicators
-    while (folder && folder.name !== "vm") {
-        var folderName = folder.name.toLowerCase();
-        if (folderName.indexOf("prod") >= 0) {
-            envDetected = "PROD";
-            break;
-        } else if (folderName.indexOf("kleb") >= 0) {
-            envDetected = "KLEB";
-            break;
-        } else if (folderName.indexOf("ot") >= 0) {
-            envDetected = "OT";
-            break;
-        }
-        folder = folder.parent;
-    }
-    environment = envDetected;
+// Prepare data for Decision Element - build folder path for environment detection
+vmFolder = vm.parent;
+var currentFolder = vmFolder;
+var pathParts = [];
+
+while (currentFolder && currentFolder.name !== "vm") {
+    pathParts.unshift(currentFolder.name);
+    currentFolder = currentFolder.parent;
 }
 
-System.log("Target Environment: " + environment);
-System.log("Action: " + action);
+// Create workflow attribute for Decision Element
+folderPath = pathParts.join("/").toLowerCase();
+System.log("VM Folder Path for decision: " + folderPath);
 ```
+
+**Element 2: Decision Element - "Determine Environment"**
+
+**Decision Element Configuration:**
+- **Name**: "Determine Environment"
+- **Description**: "Auto-detect target environment from VM folder path"
+
+**Decision Conditions (Priority Order):**
+1. **PROD Branch**
+   - **Condition**: `folderPath.indexOf("prod") >= 0`
+   - **Output Attribute**: `targetEnvironment = "PROD"`
+
+2. **KLEB Branch**
+   - **Condition**: `folderPath.indexOf("kleb") >= 0`
+   - **Output Attribute**: `targetEnvironment = "KLEB"`
+
+3. **OT Branch**
+   - **Condition**: `folderPath.indexOf("ot") >= 0`
+   - **Output Attribute**: `targetEnvironment = "OT"`
+
+4. **DEV Branch (Default)**
+   - **Condition**: `true` (catch-all)
+   - **Output Attribute**: `targetEnvironment = "DEV"`
+
+**Element 3: Scriptable Task - "Execute PowerShell Script"**
+
+*This task receives the `targetEnvironment` from the Decision Element*
 
 **Scriptable Task 2: "Execute PowerShell Script"**
 ```javascript
