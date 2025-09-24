@@ -651,6 +651,33 @@ function Get-VMCredentials {
         
         if ($UseStoredCredentials) {
             Write-Log "Attempting to retrieve stored credentials..." -Level Info
+
+            # First, try to get Aria Operations service account credentials if in Aria environment
+            if ($isAriaExecution) {
+                Write-Log "Attempting to retrieve Aria service account credentials..." -Level Info
+                try {
+                    # Load the service account credential helper
+                    $serviceCredHelper = Join-Path $PSScriptRoot "Get-AriaServiceCredentials.ps1"
+                    if (Test-Path $serviceCredHelper) {
+                        . $serviceCredHelper
+
+                        Write-Log "Attempting to retrieve service account credentials for $($script:Config.CurrentEnvironment)" -Level Debug
+                        $credential = Get-AriaServiceCredentials -Environment $script:Config.CurrentEnvironment -Verbose:$false
+
+                        if ($credential) {
+                            Write-Log "Successfully retrieved Aria service account credentials for user: $($credential.UserName)" -Level Success
+                            $useStoredCreds = $true
+                            Write-Log "Using Aria service account credentials for vCenter authentication" -Level Info
+                            return $credential
+                        }
+                    } else {
+                        Write-Log "Aria service credential helper not found: $serviceCredHelper" -Level Warning
+                    }
+                } catch {
+                    Write-Log "Failed to retrieve Aria service account credentials: $_" -Level Warning
+                    Write-Log "Falling back to regular stored credential method..." -Level Info
+                }
+            }
             
             try {
                 # Get credential store path - check multiple locations for backward compatibility
