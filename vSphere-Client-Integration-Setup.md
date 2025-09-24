@@ -50,16 +50,31 @@ cd C:\VMTags-v2.0
 .\Get-AriaServiceCredentials.ps1; Test-AriaServiceCredentials -Environment PROD
 ```
 
-#### 1.3 Configure PowerShell Remoting (if needed)
+#### 1.3 Configure PowerShell Remoting
 ```powershell
-# On VMTags PowerShell host
+# On VMTags PowerShell host - Run as Administrator
 Enable-PSRemoting -Force
+
+# Configure WinRM service
+winrm quickconfig -force
 
 # Configure trusted hosts for Aria Orchestrator
 Set-Item WSMan:\localhost\Client\TrustedHosts -Value "aria-orchestrator.domain.mil" -Force
 
-# Test WinRM connectivity
+# Enable Kerberos authentication (recommended for domain environments)
+Set-Item WSMan:\localhost\Service\Auth\Kerberos -Value $true
+
+# Configure WinRM listeners
+winrm create winrm/config/Listener?Address=*+Transport=HTTP
+# For HTTPS (optional but recommended):
+# winrm create winrm/config/Listener?Address=*+Transport=HTTPS
+
+# Test WinRM connectivity from Aria Orchestrator server
 Test-WSMan -ComputerName "vmtags-host.domain.mil" -Credential (Get-Credential)
+
+# Verify service account can execute PowerShell remotely
+$credential = Get-Credential -UserName "svc-vmtags@domain.mil"
+Invoke-Command -ComputerName "vmtags-host.domain.mil" -Credential $credential -ScriptBlock { Get-Location }
 ```
 
 ### Step 2: Install Aria Orchestrator Plugin
@@ -91,9 +106,30 @@ Test-WSMan -ComputerName "vmtags-host.domain.mil" -Credential (Get-Credential)
    - Provide vCenter details and credentials
 
 2. **Add PowerShell Host**
-   - Navigate to Inventory → PowerShell
-   - Run "Add a PowerShell Host" workflow
-   - Configure connection to VMTags host
+
+   **Step 2a: Configure PowerShell Host in Orchestrator**
+   - Navigate to **Inventory → PowerShell** in Aria Orchestrator
+   - Run **"Add a PowerShell Host"** workflow
+   - Provide the following details:
+     ```
+     Name: VMTags-PowerShell-Host
+     Host/IP: vmtags-host.domain.mil (your VMTags server)
+     Port: 5985 (HTTP) or 5986 (HTTPS)
+     Authentication: Kerberos or Basic
+     Username: svc-vmtags@domain.mil (service account)
+     Password: [service account password]
+     ```
+
+   **Step 2b: Test PowerShell Host Connection**
+   - Navigate to **Inventory → PowerShell → VMTags-PowerShell-Host**
+   - Right-click and select **"Test Connection"**
+   - Verify connection shows **"Connected"** status
+   - Run test command: `Get-Location` to verify PowerShell execution
+
+   **Step 2c: Verify VMTags Scripts Access**
+   - Execute test command: `Test-Path "C:\VMTags-v2.0\Invoke-VMTagsFromvSphere.ps1"`
+   - Should return `True` indicating scripts are accessible
+   - Test script execution: `Get-Help "C:\VMTags-v2.0\Invoke-VMTagsFromvSphere.ps1"`
 
 ### Step 3: Create Orchestrator Workflows
 
@@ -131,10 +167,21 @@ Create the following workflows in Aria Orchestrator:
    System.log("Target Environment: " + environment);
 
    // Scriptable Task: Execute VMTags
-   var powerShellHost = System.getModule("com.vmware.library.powershell").getPowerShellHost("VMTags-Host");
-   var scriptPath = "C:\\VMTags-v2.0\\Invoke-VMTagsFromvSphere.ps1";
-   var command = scriptPath + " -VMName '" + vmName + "' -Environment " + environment + " -Action " + action;
+   // Get the configured PowerShell host
+   var powerShellHost = System.getModule("com.vmware.library.powershell").getPowerShellHost("VMTags-PowerShell-Host");
 
+   if (!powerShellHost) {
+       throw "PowerShell host 'VMTags-PowerShell-Host' not found. Please verify PowerShell host configuration.";
+   }
+
+   // Prepare the PowerShell command
+   var scriptPath = "C:\\VMTags-v2.0\\Invoke-VMTagsFromvSphere.ps1";
+   var command = scriptPath + " -VMName '" + vmName + "' -Environment " + environment + " -Action " + action + " -EnableDebug";
+
+   System.log("Executing PowerShell command: " + command);
+   System.log("PowerShell host: " + powerShellHost.name);
+
+   // Execute the script on the remote PowerShell host
    var result = System.getModule("com.vmware.library.powershell").invokeScript(powerShellHost, command);
 
    if (result.exitCode !== 0) {
@@ -342,10 +389,22 @@ function Test-vSphereIntegrationHealth {
 
 ### Common Issues and Solutions
 
-1. **"PowerShell Host Not Found"**
+1. **"PowerShell Host Not Found" Error**
    ```
-   Solution: Verify PowerShell host configuration in Aria Orchestrator
-   Check: Inventory → PowerShell → VMTags-Host
+   Error: PowerShell host 'VMTags-PowerShell-Host' not found
+
+   Solution Steps:
+   1. Navigate to Aria Orchestrator → Inventory → PowerShell
+   2. Verify host exists with exact name: "VMTags-PowerShell-Host"
+   3. Check connection status - should show "Connected"
+   4. If disconnected, right-click → "Test Connection"
+   5. Verify credentials and network connectivity
+   6. Ensure WinRM is enabled on target host
+
+   Test Commands:
+   - In Orchestrator: Test-Connection vmtags-host.domain.mil
+   - On VMTags host: Test-WSMan -ComputerName "localhost"
+   - Check service: Get-Service WinRM
    ```
 
 2. **"VM Not Found" Error**
@@ -397,16 +456,83 @@ System.log("Execution Result: " + JSON.stringify(result));
 
 ## ✅ Deployment Checklist
 
+### PowerShell Host Configuration
+- [ ] WinRM enabled on VMTags host (`Enable-PSRemoting -Force`)
+- [ ] WinRM listeners configured (HTTP port 5985, optionally HTTPS port 5986)
+- [ ] Trusted hosts configured for Aria Orchestrator server
+- [ ] Service account credentials validated for remote PowerShell execution
+- [ ] Network connectivity verified between Aria Orchestrator and VMTags host
+
+### VMTags Environment
 - [ ] VMTags scripts tested and validated
-- [ ] Service account credentials configured for all environments
-- [ ] PowerShell remoting configured and tested
+- [ ] Service account credentials configured for all environments (`Set-AriaServiceCredentials.ps1`)
+- [ ] Single VM processing tested (`-SpecificVM` parameter)
+- [ ] vSphere Client wrapper script tested (`Invoke-VMTagsFromvSphere.ps1`)
+
+### Aria Orchestrator Integration
 - [ ] Aria Orchestrator plugin installed in vSphere Client
-- [ ] vCenter and PowerShell host added to Orchestrator inventory
-- [ ] Workflows created and tested in Orchestrator
+- [ ] vCenter Server added to Orchestrator inventory
+- [ ] **PowerShell host added to Orchestrator inventory with name "VMTags-PowerShell-Host"**
+- [ ] **PowerShell host connection tested and shows "Connected" status**
+- [ ] **VMTags scripts accessibility verified from Orchestrator**
+
+### Workflow Deployment
+- [ ] Main workflow created: "VMTags - Update VM Permissions"
+- [ ] Specialized workflows created (SyncAllTags, ApplyContainerPermissions, ValidatePermissions)
+- [ ] Workflow actions configured for context menus
 - [ ] Context menu actions deployed to vSphere Client
+
+### Testing and Validation
 - [ ] Integration tested with sample VMs from each environment
+- [ ] PowerShell host connectivity verified from workflows
+- [ ] Error handling tested (invalid VMs, connection failures)
+- [ ] Logging and monitoring validated
+
+### Documentation and Training
 - [ ] User documentation created and distributed
 - [ ] Administrator training completed
 - [ ] Monitoring and maintenance procedures established
 
 **Deployment complete when all checklist items are verified! 🎉**
+
+---
+
+## 📖 Quick Reference: PowerShell Host Setup
+
+### Critical Configuration Steps
+```powershell
+# 1. Enable PowerShell remoting on VMTags host
+Enable-PSRemoting -Force
+winrm quickconfig -force
+
+# 2. Add Aria Orchestrator to trusted hosts
+Set-Item WSMan:\localhost\Client\TrustedHosts -Value "aria-orchestrator.domain.mil" -Force
+
+# 3. Test connectivity from Orchestrator server
+Test-WSMan -ComputerName "vmtags-host.domain.mil"
+Invoke-Command -ComputerName "vmtags-host.domain.mil" -Credential $cred -ScriptBlock { Get-Location }
+```
+
+### Aria Orchestrator Configuration
+```
+Navigate to: Inventory → PowerShell → Add a PowerShell Host
+Name: VMTags-PowerShell-Host (exact name required)
+Host: vmtags-host.domain.mil
+Port: 5985 (HTTP) or 5986 (HTTPS)
+Authentication: Kerberos (domain) or Basic
+Username: svc-vmtags@domain.mil
+Password: [service account password]
+```
+
+### Workflow PowerShell Host Reference
+```javascript
+// In workflow JavaScript, reference the host by exact name:
+var powerShellHost = System.getModule("com.vmware.library.powershell").getPowerShellHost("VMTags-PowerShell-Host");
+```
+
+### Common Issues
+- ❌ **Host name mismatch**: Ensure exact name "VMTags-PowerShell-Host"
+- ❌ **WinRM not enabled**: Run `Enable-PSRemoting -Force`
+- ❌ **Network connectivity**: Check ports 5985/5986 are open
+- ❌ **Authentication failure**: Verify service account permissions
+- ❌ **Script path**: Ensure C:\VMTags-v2.0\ is accessible on target host

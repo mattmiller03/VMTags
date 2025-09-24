@@ -62,12 +62,17 @@ The vSphere Client integration allows users to right-click on VMs and execute VM
 
 3. **PowerShell Host Connection**
    ```javascript
-   // Get PowerShell host from configuration
+   // Get the configured PowerShell host (must match name from inventory)
    var powerShellHost = System.getModule("com.vmware.library.powershell").getPowerShellHost("VMTags-PowerShell-Host");
 
    if (!powerShellHost) {
-       throw "PowerShell host 'VMTags-PowerShell-Host' not found. Please configure PowerShell integration.";
+       throw "PowerShell host 'VMTags-PowerShell-Host' not found. Please verify:\n" +
+             "1. PowerShell host is configured in Inventory → PowerShell\n" +
+             "2. Host name matches exactly: 'VMTags-PowerShell-Host'\n" +
+             "3. Connection status shows 'Connected'";
    }
+
+   System.log("Using PowerShell host: " + powerShellHost.name + " (" + powerShellHost.hostName + ")");
    ```
 
 4. **Execute VMTags Script**
