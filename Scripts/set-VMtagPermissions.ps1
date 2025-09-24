@@ -112,7 +112,13 @@ Param(
     [string]$InheritanceCategories = "",
 
     [Parameter(Mandatory = $false, HelpMessage = "Dry run mode for inheritance - show what would be inherited without making changes")]
-    [switch]$InheritanceDryRun
+    [switch]$InheritanceDryRun,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Process only this specific VM (for vSphere Client integration)")]
+    [string]$SpecificVM,
+
+    [Parameter(Mandatory = $false, HelpMessage = "vSphere Client integration mode - optimized for single VM processing")]
+    [switch]$vSphereClientMode
 )
 
 #region A) Credential Loading and Configs
@@ -2005,10 +2011,29 @@ try {
     
     Write-Log "Pre-created $osTagsCreated OS tags" "INFO"
     
-    # Get all VMs for OS processing - excluding system and control VMs
-    Write-Log "Getting all VMs for OS processing (excluding vCLS*, VLC*, stCtlVM* VMs)..." "DEBUG"
-    $allVms = Get-VM | Where-Object Name -notmatch '^(vCLS|VLC|stCtlVM)'
-    Write-Log "Found $($allVms.Count) VMs to check for OS patterns (after filtering system VMs)." "INFO"
+    # Get VMs for processing - handle single VM mode for vSphere Client integration
+    if ($SpecificVM) {
+        Write-Log "vSphere Client Mode: Processing specific VM '$SpecificVM'" "INFO"
+        $allVms = Get-VM -Name $SpecificVM -ErrorAction SilentlyContinue
+
+        if (-not $allVms) {
+            throw "VM '$SpecificVM' not found. Please verify the VM name is correct."
+        }
+
+        if ($allVms -is [array]) {
+            $allVms = $allVms[0]  # Take first match if multiple VMs found
+            Write-Log "Multiple VMs found with name '$SpecificVM'. Using first match: $($allVms.Name)" "WARN"
+        }
+
+        $allVms = @($allVms)  # Ensure it's an array for consistent processing
+        Write-Log "Single VM mode: Will process VM '$($allVms[0].Name)'" "INFO"
+    }
+    else {
+        # Standard mode: Get all VMs excluding system and control VMs
+        Write-Log "Getting all VMs for OS processing (excluding vCLS*, VLC*, stCtlVM* VMs)..." "DEBUG"
+        $allVms = Get-VM | Where-Object Name -notmatch '^(vCLS|VLC|stCtlVM)'
+        Write-Log "Found $($allVms.Count) VMs to check for OS patterns (after filtering system VMs)." "INFO"
+    }
 
     # Enhanced Linked Mode deduplication: Create a tracking file for processed VMs across vCenter connections
     $processedVMsFile = Join-Path $script:logFolder "ProcessedVMs_$($Environment)_$(Get-Date -Format 'yyyyMMdd').json"
