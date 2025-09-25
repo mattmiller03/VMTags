@@ -1835,7 +1835,7 @@ try {
                 if ($envDataPaths.EnableNetworkShare -eq $true) {
                     $useNetworkShare = $true
                     $networkShareConfig = $envDataPaths
-                    Write-Log "Network share enabled for environment: $Environment" "SUCCESS"
+                    Write-Log "Network share enabled for environment: $Environment" "INFO"
                     Write-Log "Network share path: $($envDataPaths.NetworkSharePath)" "INFO"
                 } else {
                     Write-Log "Network share disabled for environment: $Environment (EnableNetworkShare = $($envDataPaths.EnableNetworkShare))" "INFO"
@@ -1883,7 +1883,7 @@ try {
 
                 if ($appResult.Success) {
                     $appPermissionData = $appResult.Data
-                    Write-Log "Loaded App Permissions CSV from $($appResult.Source): $($appResult.RowCount) rows" "SUCCESS"
+                    Write-Log "Loaded App Permissions CSV from $($appResult.Source): $($appResult.RowCount) rows" "INFO"
                 } else {
                     throw "Failed to load App Permissions CSV from network share: $($appResult.Error)"
                 }
@@ -1915,7 +1915,7 @@ try {
 
             if ($osResult.Success) {
                 $osMappingData = $osResult.Data
-                Write-Log "Loaded OS Mapping CSV from $($osResult.Source): $($osResult.RowCount) rows" "SUCCESS"
+                Write-Log "Loaded OS Mapping CSV from $($osResult.Source): $($osResult.RowCount) rows" "INFO"
             } else {
                 throw "Failed to load OS Mapping CSV from network share: $($osResult.Error)"
             }
