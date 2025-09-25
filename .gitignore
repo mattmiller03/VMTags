@@ -52,3 +52,4 @@ desktop.ini
 /.vs/slnx.sqlite
 /.vs/slnx.sqlite-journal
 *.csv
+ConfigFiles/VMTagsConfig.psd1
