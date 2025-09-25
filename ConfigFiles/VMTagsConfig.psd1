@@ -37,6 +37,13 @@
                 OSMappingCSV                =   ".\Data\DEV\OS-Mappings_DEV.csv"
                 LogDirectory                =   ".\Logs\DEV"
                 BackupDirectory             =   ".\Backup\DEV"
+
+                # Network share configuration (optional - will fallback to local files if not configured)
+                NetworkSharePath            =   "\\fileserver\VMTags\Config\DEV"
+                NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
+                EnableNetworkShare          =   $false              # Set to $true to enable network share
+                CacheNetworkFiles           =   $true               # Cache network files locally
+                CacheExpiryHours           =   4                   # Hours before cache expires
             }
             
             # DEV-specific settings
@@ -74,6 +81,13 @@
                 OSMappingCSV        =       ".\Data\PROD\OS-Mappings-PROD.csv"
                 LogDirectory        =       ".\Logs\PROD"
                 BackupDirectory     =       ".\Backup\PROD"
+
+                # Network share configuration (optional - will fallback to local files if not configured)
+                NetworkSharePath            =   "\\fileserver\VMTags\Config\PROD"
+                NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
+                EnableNetworkShare          =   $true               # Set to $true to enable network share
+                CacheNetworkFiles           =   $true               # Cache network files locally
+                CacheExpiryHours           =   2                   # Hours before cache expires (shorter for PROD)
             }
             
             Settings = @{
@@ -110,6 +124,13 @@
                 OSMappingCSV            =   ".\Data\KLEB\OS-Mappings_KLE.csv"
                 LogDirectory            =   ".\Logs\KLEB"
                 BackupDirectory         =   ".\Backup\KLEB"
+
+                # Network share configuration (optional - will fallback to local files if not configured)
+                NetworkSharePath            =   "\\fileserver\VMTags\Config\KLEB"
+                NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
+                EnableNetworkShare          =   $true               # Set to $true to enable network share
+                CacheNetworkFiles           =   $true               # Cache network files locally
+                CacheExpiryHours           =   3                   # Hours before cache expires
             }
             
             Settings = @{
@@ -138,6 +159,13 @@
                 OSMappingCSV            =   ".\Data\OT\OS-Mappings-OT.csv"
                 LogDirectory            =   ".\Logs\OT"
                 BackupDirectory         =   ".\Backup\OT"
+
+                # Network share configuration (optional - will fallback to local files if not configured)
+                NetworkSharePath            =   "\\fileserver\VMTags\Config\OT"
+                NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
+                EnableNetworkShare          =   $false              # Set to $false for OT environment (security)
+                CacheNetworkFiles           =   $false              # Disable caching for OT environment
+                CacheExpiryHours           =   1                   # Minimal cache time if enabled
             }
             
             Settings = @{

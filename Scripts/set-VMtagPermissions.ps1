@@ -1798,15 +1798,108 @@ try {
     # --- Data Import and Validation ---
     Write-Log "Importing and validating CSV data..." "INFO"
     
-    if (-not (Test-Path $AppPermissionsCsvPath)) { 
-        throw "Application Permissions CSV not found: $AppPermissionsCsvPath" 
+    # Load CSV data using network share functionality if available
+    $appPermissionData = @()
+    $osMappingData = @()
+
+    # Try to load configuration file to check for network share settings
+    $configPath = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "..\ConfigFiles\VMTagsConfig.psd1"
+    $useNetworkShare = $false
+    $networkShareConfig = $null
+
+    if (Test-Path $configPath) {
+        try {
+            $config = Import-PowerShellDataFile -Path $configPath
+            if ($config.Environments.$Environment.DataPaths.EnableNetworkShare) {
+                $useNetworkShare = $true
+                $networkShareConfig = $config.Environments.$Environment.DataPaths
+                Write-Log "Network share enabled for environment: $Environment" "INFO"
+            }
+        }
+        catch {
+            Write-Log "Failed to load network share configuration: $($_.Exception.Message)" "WARN"
+        }
     }
-    if (-not (Test-Path $OsMappingCsvPath)) { 
-        throw "OS Mapping CSV not found: $OsMappingCsvPath" 
+
+    # Load App Permissions CSV
+    if ($useNetworkShare -and $networkShareConfig) {
+        try {
+            # Load network share script
+            $networkShareScriptPath = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "Get-NetworkShareCSV.ps1"
+            if (Test-Path $networkShareScriptPath) {
+                . $networkShareScriptPath
+
+                # Get credentials from Windows Credential Manager if specified
+                $shareCredential = $null
+                if ($networkShareConfig.NetworkShareCredentialName) {
+                    try {
+                        # Load credential manager script
+                        $credScriptPath = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "Get-StoredCredential.ps1"
+                        if (Test-Path $credScriptPath) {
+                            $shareCredential = & $credScriptPath -Target $networkShareConfig.NetworkShareCredentialName -ErrorAction SilentlyContinue
+                        }
+                    }
+                    catch {
+                        Write-Log "Could not retrieve network share credentials: $($_.Exception.Message)" "WARN"
+                    }
+                }
+
+                # Get App Permissions CSV from network share
+                $appPermFileName = Split-Path $AppPermissionsCsvPath -Leaf
+                $appResult = Get-NetworkShareCSV -NetworkPath $networkShareConfig.NetworkSharePath -LocalFallbackPath (Split-Path $AppPermissionsCsvPath -Parent) -FileName $appPermFileName -Credential $shareCredential -EnableCaching $networkShareConfig.CacheNetworkFiles -CacheExpiryHours $networkShareConfig.CacheExpiryHours
+
+                if ($appResult.Success) {
+                    $appPermissionData = $appResult.Data
+                    Write-Log "Loaded App Permissions CSV from $($appResult.Source): $($appResult.RowCount) rows" "SUCCESS"
+                } else {
+                    throw "Failed to load App Permissions CSV from network share: $($appResult.Error)"
+                }
+            } else {
+                throw "Network share script not found: $networkShareScriptPath"
+            }
+        }
+        catch {
+            Write-Log "Network share loading failed, falling back to local file: $($_.Exception.Message)" "WARN"
+            $useNetworkShare = $false
+        }
     }
-    
-    $appPermissionData = Import-Csv -Path $AppPermissionsCsvPath
-    $osMappingData = Import-Csv -Path $OsMappingCsvPath
+
+    # Fallback to local file loading for App Permissions CSV
+    if (-not $useNetworkShare -or $appPermissionData.Count -eq 0) {
+        if (-not (Test-Path $AppPermissionsCsvPath)) {
+            throw "Application Permissions CSV not found: $AppPermissionsCsvPath"
+        }
+        $appPermissionData = Import-Csv -Path $AppPermissionsCsvPath
+        Write-Log "Loaded App Permissions CSV from local file: $($appPermissionData.Count) rows" "INFO"
+    }
+
+    # Load OS Mapping CSV
+    if ($useNetworkShare -and $networkShareConfig) {
+        try {
+            # Get OS Mapping CSV from network share
+            $osMappingFileName = Split-Path $OsMappingCsvPath -Leaf
+            $osResult = Get-NetworkShareCSV -NetworkPath $networkShareConfig.NetworkSharePath -LocalFallbackPath (Split-Path $OsMappingCsvPath -Parent) -FileName $osMappingFileName -Credential $shareCredential -EnableCaching $networkShareConfig.CacheNetworkFiles -CacheExpiryHours $networkShareConfig.CacheExpiryHours
+
+            if ($osResult.Success) {
+                $osMappingData = $osResult.Data
+                Write-Log "Loaded OS Mapping CSV from $($osResult.Source): $($osResult.RowCount) rows" "SUCCESS"
+            } else {
+                throw "Failed to load OS Mapping CSV from network share: $($osResult.Error)"
+            }
+        }
+        catch {
+            Write-Log "Network share loading failed for OS Mapping, falling back to local file: $($_.Exception.Message)" "WARN"
+        }
+    }
+
+    # Fallback to local file loading for OS Mapping CSV
+    if (-not $useNetworkShare -or $osMappingData.Count -eq 0) {
+        if (-not (Test-Path $OsMappingCsvPath)) {
+            throw "OS Mapping CSV not found: $OsMappingCsvPath"
+        }
+        $osMappingData = Import-Csv -Path $OsMappingCsvPath
+        Write-Log "Loaded OS Mapping CSV from local file: $($osMappingData.Count) rows" "INFO"
+    }
     
     Write-Log "Imported $($appPermissionData.Count) rows from App Permissions CSV." "INFO"
     Write-Log "Imported $($osMappingData.Count) rows from OS Mapping CSV." "INFO"
