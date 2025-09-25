@@ -3,10 +3,10 @@
     Application = @{
         Name = "VM Tags and Permissions Management"
         Version = "2.1.0"
-        Author = "Infrastructure Team"
+        Author = "Matthew Miller (VPM)"
         Description = "Automated management of vCenter VM tags and permissions based on CSV configurations"
-        LastUpdated = "2024-01-15"
-        SupportContact = "infrastructure@company.com"
+        LastUpdated = "2025-09-25"
+        SupportContact = "EnterpriseVirtualizationAdmins@dla.mil"
     }
     
     # Environment Configurations
@@ -22,7 +22,7 @@
             # )
 
             SSODomain               =   "DLA-Test-Dev.local"
-            DefaultCredentialUser   =   "administrator@DLA-Test-Dev.local"
+            DefaultCredentialUser   =   "vpm_script@DLA-Test-Dev.local"
             
             # Tag Categories for DEV environment
             TagCategories = @{
@@ -39,7 +39,7 @@
                 BackupDirectory             =   ".\Backup\DEV"
 
                 # Network share configuration (optional - will fallback to local files if not configured)
-                NetworkSharePath            =   "\\fileserver\VMTags\Config\DEV"
+                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource\DEV"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
                 EnableNetworkShare          =   $false              # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
@@ -59,16 +59,16 @@
         
         PROD = @{
             # Single vCenter mode (backward compatibility)
-            vCenterServer           =   "daisv0pp241.dir.ad.dla.mil"
+            #vCenterServer           =   "daisv0pp241.dir.ad.dla.mil"
 
             # Multi-vCenter Enhanced Linked Mode support
-            # vCenterServers = @(
-            #     @{ Server = "daisv0pp241.dir.ad.dla.mil"; Description = "Primary PROD vCenter Site A"; Priority = 1 }
-            #     @{ Server = "daisv0pp242.dir.ad.dla.mil"; Description = "Secondary PROD vCenter Site B"; Priority = 2 }
-            # )
+             vCenterServers = @(
+                 @{ Server = "daisv0pp241.dir.ad.dla.mil"; Description = "Primary PROD vCenter Site A"; Priority = 1 }
+                 @{ Server = "trisv0pp241.dir.ad.dla.mil"; Description = "Secondary PROD vCenter Site B"; Priority = 2 }
+             )
 
             SSODomain               =   "DLA-Prod.local"
-            DefaultCredentialUser   =   "administrator@DLA-Prod.local"
+            DefaultCredentialUser   =   "svc_VPM_Powershell@DLA-Prod.local"
             
             TagCategories = @{
                 App                 =   "vCenter-PROD-App-team"
@@ -83,7 +83,7 @@
                 BackupDirectory     =       ".\Backup\PROD"
 
                 # Network share configuration (optional - will fallback to local files if not configured)
-                NetworkSharePath            =   "\\fileserver\VMTags\Config\PROD"
+                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource\PROD"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
                 EnableNetworkShare          =   $true               # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
@@ -102,16 +102,16 @@
         
         KLEB = @{
             # Example of Enhanced Linked Mode configuration (multiple vCenters)
-            vCenterServers = @(
-                @{ Server = "klisv0pp251.dir.ad.dla.mil"; Description = "Primary KLEB vCenter"; Priority = 1 }
-                @{ Server = "klisv0pp252.dir.ad.dla.mil"; Description = "Secondary KLEB vCenter"; Priority = 2 }
-            )
+            #vCenterServers = @(
+            #    @{ Server = "klisv0pp251.dir.ad.dla.mil"; Description = "Primary KLEB vCenter"; Priority = 1 }
+            #    @{ Server = "klisv0pp252.dir.ad.dla.mil"; Description = "Secondary KLEB vCenter"; Priority = 2 }
+            #)
 
             # Single vCenter fallback (used if vCenterServers is not defined or empty)
             vCenterServer               =   "klisv0pp251.dir.ad.dla.mil"
 
             SSODomain                   =   "DLA-Kleber.local"
-            DefaultCredentialUser       =   "administrator@DLA-KLEBER.local"
+            DefaultCredentialUser       =   "VPM_Script@DLA-Kleber.local"
             
             TagCategories = @{
                 App                     =   "vCenter-KLEBER-App-team"
@@ -126,7 +126,7 @@
                 BackupDirectory         =   ".\Backup\KLEB"
 
                 # Network share configuration (optional - will fallback to local files if not configured)
-                NetworkSharePath            =   "\\fileserver\VMTags\Config\KLEB"
+                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource\KLEB"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
                 EnableNetworkShare          =   $true               # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
@@ -144,9 +144,13 @@
         }
         
         OT = @{
-            vCenterServer               =   "vcsa-ot.corp.local"
+            vCenterServers = @(
+                @{ Server = "daisv0pp271.ics.dla.mil"; Description = "Primary KLEB vCenter"; Priority = 1 }
+                @{ Server = "trisv0pp271.ics.dla.mil"; Description = "Secondary KLEB vCenter"; Priority = 2 }
+            )
+            #vCenterServer               =   "daisv0pp271.ics.dla.mil"
             SSODomain                   =   "DLA-DaytonOT.local"
-            DefaultCredentialUser       =   "administrator@vsphere.local"
+            DefaultCredentialUser       =   "VPM_Script@DLA-daytonot.local"
             
             TagCategories = @{
                 App                     =   "vCenter-OT-App-team"
@@ -161,7 +165,7 @@
                 BackupDirectory         =   ".\Backup\OT"
 
                 # Network share configuration (optional - will fallback to local files if not configured)
-                NetworkSharePath            =   "\\fileserver\VMTags\Config\OT"
+                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource\OT"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
                 EnableNetworkShare          =   $false              # Set to $false for OT environment (security)
                 CacheNetworkFiles           =   $false              # Disable caching for OT environment
