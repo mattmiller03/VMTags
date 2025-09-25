@@ -41,7 +41,7 @@
                 # Network share configuration (optional - will fallback to local files if not configured)
                 NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource\DEV"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
-                EnableNetworkShare          =   $false              # Set to $true to enable network share
+                EnableNetworkShare          =   $true             # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
                 CacheExpiryHours           =   4                   # Hours before cache expires
             }
@@ -167,7 +167,7 @@
                 # Network share configuration (optional - will fallback to local files if not configured)
                 NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource\OT"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
-                EnableNetworkShare          =   $false              # Set to $false for OT environment (security)
+                EnableNetworkShare          =   $true              # Set to $false for OT environment (security)
                 CacheNetworkFiles           =   $false              # Disable caching for OT environment
                 CacheExpiryHours           =   1                   # Minimal cache time if enabled
             }
