@@ -22,7 +22,7 @@
             # )
 
             SSODomain               =   "DLA-Test-Dev.local"
-            DefaultCredentialUser   =   "vpm_script@DLA-Test-Dev.local"
+            DefaultCredentialUser   =   "svc_VPM_Powershell@DLA-Test-Dev.local"
             
             # Tag Categories for DEV environment
             TagCategories = @{
