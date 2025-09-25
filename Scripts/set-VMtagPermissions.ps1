@@ -1803,22 +1803,55 @@ try {
     $osMappingData = @()
 
     # Try to load configuration file to check for network share settings
-    $configPath = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "..\ConfigFiles\VMTagsConfig.psd1"
     $useNetworkShare = $false
     $networkShareConfig = $null
 
-    if (Test-Path $configPath) {
+    # Try multiple paths to find the configuration file
+    $possibleConfigPaths = @(
+        (Join-Path (Split-Path $MyInvocation.MyCommand.Path -Parent) "..\ConfigFiles\VMTagsConfig.psd1"),
+        (Join-Path $PSScriptRoot "..\ConfigFiles\VMTagsConfig.psd1"),
+        ".\ConfigFiles\VMTagsConfig.psd1",
+        (Join-Path (Get-Location) "ConfigFiles\VMTagsConfig.psd1")
+    )
+
+    $configPath = $null
+    foreach ($testPath in $possibleConfigPaths) {
+        if (Test-Path $testPath) {
+            $configPath = $testPath
+            Write-Log "Found configuration file at: $configPath" "INFO"
+            break
+        }
+    }
+
+    if ($configPath -and (Test-Path $configPath)) {
         try {
+            Write-Log "Loading network share configuration from: $configPath" "INFO"
             $config = Import-PowerShellDataFile -Path $configPath
-            if ($config.Environments.$Environment.DataPaths.EnableNetworkShare) {
-                $useNetworkShare = $true
-                $networkShareConfig = $config.Environments.$Environment.DataPaths
-                Write-Log "Network share enabled for environment: $Environment" "INFO"
+
+            if ($config.Environments -and $config.Environments.$Environment) {
+                Write-Log "Environment '$Environment' found in configuration" "INFO"
+                $envDataPaths = $config.Environments.$Environment.DataPaths
+
+                if ($envDataPaths.EnableNetworkShare -eq $true) {
+                    $useNetworkShare = $true
+                    $networkShareConfig = $envDataPaths
+                    Write-Log "Network share enabled for environment: $Environment" "SUCCESS"
+                    Write-Log "Network share path: $($envDataPaths.NetworkSharePath)" "INFO"
+                } else {
+                    Write-Log "Network share disabled for environment: $Environment (EnableNetworkShare = $($envDataPaths.EnableNetworkShare))" "INFO"
+                }
+            } else {
+                Write-Log "Environment '$Environment' not found in configuration file" "WARN"
+                Write-Log "Available environments: $($config.Environments.Keys -join ', ')" "INFO"
             }
         }
         catch {
             Write-Log "Failed to load network share configuration: $($_.Exception.Message)" "WARN"
+            Write-Log "Stack trace: $($_.ScriptStackTrace)" "WARN"
         }
+    } else {
+        Write-Log "Configuration file not found in any of the expected locations" "WARN"
+        Write-Log "Searched paths: $($possibleConfigPaths -join '; ')" "INFO"
     }
 
     # Load App Permissions CSV
