@@ -1860,7 +1860,7 @@ try {
             # Load network share script
             $networkShareScriptPath = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "Get-NetworkShareCSV.ps1"
             if (Test-Path $networkShareScriptPath) {
-                . $networkShareScriptPath
+                # Don't dot-source, we'll call it directly
 
                 # Get credentials from Windows Credential Manager if specified
                 $shareCredential = $null
@@ -1904,8 +1904,26 @@ try {
                 $enableCaching = if ($networkShareConfig.CacheNetworkFiles -ne $null) { $networkShareConfig.CacheNetworkFiles } else { $true }
                 $cacheExpiryHours = if ($networkShareConfig.CacheExpiryHours -ne $null) { $networkShareConfig.CacheExpiryHours } else { 4 }
 
-                Write-Log "Calling Get-NetworkShareCSV with validated parameters" "DEBUG"
-                $appResult = Get-NetworkShareCSV -NetworkPath $networkShareConfig.NetworkSharePath -LocalFallbackPath $localFallbackPath -FileName $appPermFileName -Credential $shareCredential -EnableCaching $enableCaching -CacheExpiryHours $cacheExpiryHours
+                Write-Log "Calling network share script directly with parameters" "DEBUG"
+
+                # Build parameters hashtable for splatting
+                $scriptParams = @{
+                    NetworkPath = $networkShareConfig.NetworkSharePath
+                    LocalFallbackPath = $localFallbackPath
+                    FileName = $appPermFileName
+                    EnableCaching = $enableCaching
+                    CacheExpiryHours = $cacheExpiryHours
+                }
+
+                # Add credential if available
+                if ($shareCredential) {
+                    $scriptParams.Credential = $shareCredential
+                }
+
+                Write-Log "Script parameters: $($scriptParams.Keys -join ', ')" "DEBUG"
+
+                # Call the script directly with parameter splatting
+                $appResult = & $networkShareScriptPath @scriptParams
 
                 if ($appResult.Success) {
                     $appPermissionData = $appResult.Data
@@ -1960,8 +1978,26 @@ try {
             $osEnableCaching = if ($networkShareConfig.CacheNetworkFiles -ne $null) { $networkShareConfig.CacheNetworkFiles } else { $true }
             $osCacheExpiryHours = if ($networkShareConfig.CacheExpiryHours -ne $null) { $networkShareConfig.CacheExpiryHours } else { 4 }
 
-            Write-Log "Calling Get-NetworkShareCSV for OS Mapping with validated parameters" "DEBUG"
-            $osResult = Get-NetworkShareCSV -NetworkPath $networkShareConfig.NetworkSharePath -LocalFallbackPath $osLocalFallbackPath -FileName $osMappingFileName -Credential $shareCredential -EnableCaching $osEnableCaching -CacheExpiryHours $osCacheExpiryHours
+            Write-Log "Calling network share script for OS Mapping with validated parameters" "DEBUG"
+
+            # Build parameters hashtable for OS Mapping
+            $osScriptParams = @{
+                NetworkPath = $networkShareConfig.NetworkSharePath
+                LocalFallbackPath = $osLocalFallbackPath
+                FileName = $osMappingFileName
+                EnableCaching = $osEnableCaching
+                CacheExpiryHours = $osCacheExpiryHours
+            }
+
+            # Add credential if available
+            if ($shareCredential) {
+                $osScriptParams.Credential = $shareCredential
+            }
+
+            Write-Log "OS Mapping script parameters: $($osScriptParams.Keys -join ', ')" "DEBUG"
+
+            # Call the script directly with parameter splatting
+            $osResult = & $networkShareScriptPath @osScriptParams
 
             if ($osResult.Success) {
                 $osMappingData = $osResult.Data
