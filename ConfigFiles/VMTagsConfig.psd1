@@ -29,6 +29,7 @@
                 App         =       "vCenter-DEV-App-team"
                 Function    =       "vCenter-DEV-Function"
                 OS          =       "vCenter-DEV-OS"
+                Host        =       "vCenter-DEV-Host"         # ESXi host tags
             }
             
             # File paths for DEV
@@ -74,6 +75,7 @@
                 App                 =   "vCenter-PROD-App-team"
                 Function            =   "vCenter-PROD-Function"
                 OS                  =   "vCenter-PROD-OS"
+                Host                =   "vCenter-PROD-Host"      # ESXi host tags
             }
             
             DataPaths = @{
@@ -117,6 +119,7 @@
                 App                     =   "vCenter-KLEBER-App-team"
                 Function                =   "vCenter-KLEBER-Function"
                 OS                      =   "vCenter-KLEBER-OS"
+                Host                    =   "vCenter-KLEBER-Host"        # ESXi host tags
             }
             
             DataPaths = @{
@@ -156,6 +159,7 @@
                 App                     =   "vCenter-OT-App-team"
                 Function                =   "vCenter-OT-Function"
                 OS                      =   "vCenter-OT-OS"
+                Host                    =   "vCenter-OT-Host"           # ESXi host tags
             }
             
             DataPaths = @{

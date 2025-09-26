@@ -1238,7 +1238,7 @@ function Test-SsoGroupExistsSimple {
 function Ensure-TagCategory {
     # PowerCLI 13+ Note: EntityType cannot be modified on existing categories using Set-TagCategory
     # EntityType can only be set during category creation with New-TagCategory
-    param([string]$CategoryName, [string]$Description = "Managed by script", [string]$Cardinality = "MULTIPLE", [string[]]$EntityType = @("VirtualMachine", "Folder", "VApp", "ResourcePool", "HostSystem"))
+    param([string]$CategoryName, [string]$Description = "Managed by script", [string]$Cardinality = "MULTIPLE", [string[]]$EntityType = @("VirtualMachine", "Folder", "VApp", "ResourcePool"))
     $existingCat = Get-TagCategory -Name $CategoryName -ErrorAction SilentlyContinue
     if ($existingCat) {
         # Check if existing category has required entity types
@@ -1877,6 +1877,39 @@ try {
                     }
                 }
 
+                # If no stored credentials found, prompt for credentials
+                if (-not $shareCredential) {
+                    Write-Log "No stored credentials found for network share access" "WARN"
+
+                    # Check if we can access the share without credentials first
+                    try {
+                        $testAccess = Test-Path $networkShareConfig.NetworkSharePath -ErrorAction Stop
+                        if ($testAccess) {
+                            Write-Log "Network share accessible without credentials" "INFO"
+                        } else {
+                            Write-Log "Network share requires authentication" "INFO"
+
+                            # Prompt for credentials interactively
+                            Write-Host "Network share credentials required for: $($networkShareConfig.NetworkSharePath)" -ForegroundColor Yellow
+                            $shareCredential = Get-Credential -Message "Enter credentials for network share access" -UserName "$env:USERDOMAIN\$env:USERNAME"
+
+                            if ($shareCredential) {
+                                Write-Log "Interactive credentials provided for network share" "INFO"
+                            } else {
+                                Write-Log "No credentials provided - will attempt without authentication" "WARN"
+                            }
+                        }
+                    }
+                    catch {
+                        Write-Log "Cannot test network share access: $($_.Exception.Message)" "WARN"
+                        Write-Log "Prompting for credentials as fallback" "INFO"
+
+                        # Prompt for credentials as fallback
+                        Write-Host "Network share credentials required for: $($networkShareConfig.NetworkSharePath)" -ForegroundColor Yellow
+                        $shareCredential = Get-Credential -Message "Enter credentials for network share access" -UserName "$env:USERDOMAIN\$env:USERNAME"
+                    }
+                }
+
                 # Get App Permissions CSV from network share
                 $appPermFileName = Split-Path $AppPermissionsCsvPath -Leaf
                 $localFallbackPath = Split-Path $AppPermissionsCsvPath -Parent
@@ -2370,7 +2403,12 @@ try {
                         # Apply Permissions - check for Domain Controller special case
                         $osPrincipal = "$($currentSsoDomain)\$($osMapRow.SecurityGroupName)"
                         $roleToAssign = $osMapRow.RoleName
-                        
+
+                        Write-Log "DEBUG: About to process OS permissions for VM '$($vm.Name)'" "DEBUG"
+                        Write-Log "DEBUG: OS Principal: '$osPrincipal'" "DEBUG"
+                        Write-Log "DEBUG: Role to Assign: '$roleToAssign'" "DEBUG"
+                        Write-Log "DEBUG: OS Map Row: SecurityGroupName='$($osMapRow.SecurityGroupName)', RoleName='$($osMapRow.RoleName)'" "DEBUG"
+
                         # Check if this is a Domain Controller for Windows OS admin permissions override
                         if ($osMapRow.SecurityGroupName -eq "Windows Server Team") {
                             try {
@@ -2392,17 +2430,21 @@ try {
                         }
                         
                         Write-Log "Processing permissions for VM '$($vm.Name)': Principal='$($osPrincipal)', Role='$($roleToAssign)'" "DEBUG"
-                        
+
                         $result = Assign-PermissionIfNeeded -VM $vm -Principal $osPrincipal -RoleName $roleToAssign
                         Track-PermissionAssignment -Result $result -VM $vm -Source "OSMapping"
-                        
+
+                        Write-Log "DEBUG: Permission assignment result for VM '$($vm.Name)': Action='$($result.Action)', Reason='$($result.Reason)'" "DEBUG"
+
                         switch ($result.Action) {
-                            "Created" { 
+                            "Created" {
                                 $osPermissionCount++
                                 $script:ExecutionSummary.PermissionsAssigned++
+                                Write-Log "SUCCESS: Created OS permission for VM '$($vm.Name)': '$osPrincipal' -> '$roleToAssign'" "INFO"
                             }
-                            "Skipped" { 
+                            "Skipped" {
                                 $script:ExecutionSummary.PermissionsSkipped++
+                                Write-Log "SKIPPED: OS permission for VM '$($vm.Name)': '$osPrincipal' -> '$roleToAssign' (Reason: $($result.Reason))" "INFO"
                             }
                             "Failed" { 
                                 $script:ExecutionSummary.PermissionsFailed++
