@@ -149,7 +149,7 @@ function Test-AriaExecution {
                 return $true
             }
             elseif ($indicator -ne 'VRO_DEBUG' -and $indicator -ne 'AUTOMATION_MODE') {
-                Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Aria Operations execution detected via: $indicator=$value" -ForegroundColor Yellow
+                Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [INFO ] Aria Operations execution detected via: $($indicator)=$($value)" -ForegroundColor Yellow
                 return $true
             }
         }
@@ -179,7 +179,7 @@ if (-not $Credential -and (Test-AriaExecution)) {
                 Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [WARNING] Environment parameter not provided, cannot retrieve Aria service account credentials" -ForegroundColor Yellow
             }
         } else {
-            Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [WARNING] Get-AriaServiceCredentials.ps1 not found at: $getAriaScriptPath" -ForegroundColor Yellow
+            Write-Host "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [WARNING] Get-AriaServiceCredentials.ps1 not found at: $($getAriaScriptPath)" -ForegroundColor Yellow
         }
     }
     catch {
@@ -802,15 +802,15 @@ function Process-HierarchicalTagInheritance {
                     if (-not $DryRun) {
                         try {
                             New-TagAssignment -Tag $tag -Entity $vm -ErrorAction Stop
-                            Write-Log "VM '$($vm.Name)': Inherited tag '$($tag.Name)' from $source '$($sourceName)'" "INFO"
+                            Write-Log "VM '$($vm.Name)': Inherited tag '$($tag.Name)' from $($source) '$($sourceName)'" "INFO"
                             $tagsInherited++
                         }
                         catch {
-                            Write-Log "VM '$($vm.Name)': Failed to inherit tag '$($tag.Name)' from $source '$($sourceName)': $_" "ERROR"
+                            Write-Log "VM '$($vm.Name)': Failed to inherit tag '$($tag.Name)' from $($source) '$($sourceName)': $_" "ERROR"
                             $errors++
                         }
                     } else {
-                        Write-Log "VM '$($vm.Name)': WOULD inherit tag '$($tag.Name)' from $source '$($sourceName)'" "INFO"
+                        Write-Log "VM '$($vm.Name)': WOULD inherit tag '$($tag.Name)' from $($source) '$($sourceName)'" "INFO"
                         $tagsInherited++
                     }
                 }
@@ -822,7 +822,7 @@ function Process-HierarchicalTagInheritance {
 
             # Progress reporting
             if ($vmProcessed % 50 -eq 0) {
-                Write-Log "Hierarchical inheritance progress: $vmProcessed/$($allVMs.Count) VMs processed" "INFO"
+                Write-Log "Hierarchical inheritance progress: $($vmProcessed)/$($allVMs.Count) VMs processed" "INFO"
             }
 
             # Track processed VM for inheritance deduplication across vCenter connections
@@ -842,10 +842,10 @@ function Process-HierarchicalTagInheritance {
         }
 
         Write-Log "Hierarchical Tag Inheritance Summary:" "INFO"
-        Write-Log "  VMs Processed: $vmProcessed" "INFO"
-        Write-Log "  Tags Inherited: $tagsInherited" "INFO"
-        Write-Log "  Tags Skipped: $tagsSkipped" "INFO"
-        Write-Log "  Errors: $errors" "INFO"
+        Write-Log "  VMs Processed: $($vmProcessed)" "INFO"
+        Write-Log "  Tags Inherited: $($tagsInherited)" "INFO"
+        Write-Log "  Tags Skipped: $($tagsSkipped)" "INFO"
+        Write-Log "  Errors: $($errors)" "INFO"
 
         return @{
             VMsProcessed = $vmProcessed
@@ -902,7 +902,7 @@ function Process-FolderBasedPermissions {
         # Get the app category object
         $appCat = Get-TagCategory -Name $AppCategoryName -ErrorAction SilentlyContinue
         if (-not $appCat) {
-            Write-Log "Application tag category '$AppCategoryName' not found - skipping folder and resource pool processing" "WARN"
+            Write-Log "Application tag category '$($AppCategoryName)' not found - skipping folder and resource pool processing" "WARN"
             return @{
                 FoldersProcessed = 0
                 ResourcePoolsProcessed = 0
@@ -935,7 +935,7 @@ function Process-FolderBasedPermissions {
                 $tagIndex = 0
                 foreach ($debugTag in $folderTags) {
                     $tagIndex++
-                    Write-Log "  Tag #$tagIndex`: '$($debugTag.Tag.Name)' (Category: '$($debugTag.Tag.Category.Name)')" "DEBUG"
+                    Write-Log "  Tag #$($tagIndex)`: '$($debugTag.Tag.Name)' (Category: '$($debugTag.Tag.Category.Name)')" "DEBUG"
                 }
 
                 # Get all VMs in this folder (recursively)
@@ -955,7 +955,7 @@ function Process-FolderBasedPermissions {
                     $processedTagCount++
                     $tagName = $folderTagAssignment.Tag.Name
 
-                    Write-Log "Folder '$($folder.Name)': Processing tag $processedTagCount of $($folderTags.Count): '$tagName'" "INFO"
+                    Write-Log "Folder '$($folder.Name)': Processing tag $processedTagCount of $($folderTags.Count): '$($tagName)'" "INFO"
 
                     # Find ALL corresponding permission data for this tag (may be multiple rows for different roles)
                     $permissionRows = @($AppPermissionData | Where-Object {
@@ -963,11 +963,11 @@ function Process-FolderBasedPermissions {
                     })
 
                     if ($permissionRows.Count -eq 0) {
-                        Write-Log "Folder '$($folder.Name)': No permission mapping found for tag '$tagName'" "WARN"
+                        Write-Log "Folder '$($folder.Name)': No permission mapping found for tag '$($tagName)'" "WARN"
                         continue
                     }
 
-                    Write-Log "Folder '$($folder.Name)': Found $($permissionRows.Count) permission mappings for tag '$tagName'" "DEBUG"
+                    Write-Log "Folder '$($folder.Name)': Found $($permissionRows.Count) permission mappings for tag '$($tagName)'" "DEBUG"
 
                     # Process each permission mapping for this tag
                     foreach ($permissionRow in $permissionRows) {
@@ -976,11 +976,11 @@ function Process-FolderBasedPermissions {
 
                         # Validate security group exists
                         if (-not (Test-SsoGroupExistsSimple -Domain $permissionRow.SecurityGroupDomain -GroupName $permissionRow.SecurityGroupName)) {
-                            Write-Log "Folder '$($folder.Name)': Skipping permissions for principal '$principal' as SSO group was not found" "WARN"
+                            Write-Log "Folder '$($folder.Name)': Skipping permissions for principal '$($principal)' as SSO group was not found" "WARN"
                             continue
                         }
 
-                        Write-Log "Folder '$($folder.Name)': Applying permissions for tag '$tagName' (role: $($permissionRow.RoleName)) to $($vmsInFolder.Count) VMs" "INFO"
+                        Write-Log "Folder '$($folder.Name)': Applying permissions for tag '$($tagName)' (role: $($permissionRow.RoleName)) to $($vmsInFolder.Count) VMs" "INFO"
 
                         # Apply permissions to all VMs in the folder
                         foreach ($vm in $vmsInFolder) {
@@ -992,11 +992,11 @@ function Process-FolderBasedPermissions {
                                     "Created" {
                                         $vmPermissionsApplied++
                                         $script:ExecutionSummary.PermissionsAssigned++
-                                        Write-Log "Folder '$($folder.Name)': Applied permission to VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName))" "DEBUG"
+                                        Write-Log "Folder '$($folder.Name)': Applied permission to VM '$($vm.Name)' for tag '$($tagName)' (role: $($permissionRow.RoleName))" "DEBUG"
                                     }
                                     "Skipped" {
                                         $script:ExecutionSummary.PermissionsSkipped++
-                                        Write-Log "Folder '$($folder.Name)': Skipped permission for VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName)) - $($result.Reason)" "DEBUG"
+                                        Write-Log "Folder '$($folder.Name)': Skipped permission for VM '$($vm.Name)' for tag '$($tagName)' (role: $($permissionRow.RoleName)) - $($result.Reason)" "DEBUG"
                                     }
                                     "Failed" {
                                         $script:ExecutionSummary.PermissionsFailed++
@@ -1006,13 +1006,13 @@ function Process-FolderBasedPermissions {
                                 }
                             }
                             catch {
-                                Write-Log "Folder '$($folder.Name)': Error applying permissions to VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName)): $_" "ERROR"
+                                Write-Log "Folder '$($folder.Name)': Error applying permissions to VM '$($vm.Name)' for tag '$($tagName)' (role: $($permissionRow.RoleName)): $_" "ERROR"
                                 $errors++
                             }
                         }
                     }
 
-                    Write-Log "Folder '$($folder.Name)': Completed processing tag '$tagName' ($processedTagCount of $($folderTags.Count))" "DEBUG"
+                    Write-Log "Folder '$($folder.Name)': Completed processing tag '$($tagName)' ($processedTagCount of $($folderTags.Count))" "DEBUG"
                 }
 
                 Write-Log "Folder '$($folder.Name)': Finished processing all $($folderTags.Count) tags" "INFO"
@@ -1024,7 +1024,7 @@ function Process-FolderBasedPermissions {
 
             # Progress reporting for large environments
             if ($foldersProcessed % 25 -eq 0) {
-                Write-Log "Folder processing progress: $foldersProcessed/$($allFolders.Count) folders analyzed" "INFO"
+                Write-Log "Folder processing progress: $($foldersProcessed)/$($allFolders.Count) folders analyzed" "INFO"
             }
         }
 
@@ -1050,7 +1050,7 @@ function Process-FolderBasedPermissions {
                 $rpTagIndex = 0
                 foreach ($debugTag in $resourcePoolTags) {
                     $rpTagIndex++
-                    Write-Log "  Tag #$rpTagIndex`: '$($debugTag.Tag.Name)' (Category: '$($debugTag.Tag.Category.Name)')" "DEBUG"
+                    Write-Log "  Tag #$($rpTagIndex)`: '$($debugTag.Tag.Name)' (Category: '$($debugTag.Tag.Category.Name)')" "DEBUG"
                 }
 
                 # Get all VMs in this resource pool
@@ -1070,7 +1070,7 @@ function Process-FolderBasedPermissions {
                     $rpProcessedTagCount++
                     $tagName = $resourcePoolTagAssignment.Tag.Name
 
-                    Write-Log "Resource Pool '$($resourcePool.Name)': Processing tag $rpProcessedTagCount of $($resourcePoolTags.Count): '$tagName'" "INFO"
+                    Write-Log "Resource Pool '$($resourcePool.Name)': Processing tag $($rpProcessedTagCount) of $($resourcePoolTags.Count): '$($tagName)'" "INFO"
 
                     # Find ALL corresponding permission data for this tag (may be multiple rows for different roles)
                     $permissionRows = @($AppPermissionData | Where-Object {
@@ -1078,11 +1078,11 @@ function Process-FolderBasedPermissions {
                     })
 
                     if ($permissionRows.Count -eq 0) {
-                        Write-Log "Resource Pool '$($resourcePool.Name)': No permission mapping found for tag '$tagName'" "WARN"
+                        Write-Log "Resource Pool '$($resourcePool.Name)': No permission mapping found for tag '$($tagName)'" "WARN"
                         continue
                     }
 
-                    Write-Log "Resource Pool '$($resourcePool.Name)': Found $($permissionRows.Count) permission mappings for tag '$tagName'" "DEBUG"
+                    Write-Log "Resource Pool '$($resourcePool.Name)': Found $($permissionRows.Count) permission mappings for tag '$($tagName)'" "DEBUG"
 
                     # Process each permission mapping for this tag
                     foreach ($permissionRow in $permissionRows) {
@@ -1091,11 +1091,11 @@ function Process-FolderBasedPermissions {
 
                         # Validate security group exists
                         if (-not (Test-SsoGroupExistsSimple -Domain $permissionRow.SecurityGroupDomain -GroupName $permissionRow.SecurityGroupName)) {
-                            Write-Log "Resource Pool '$($resourcePool.Name)': Skipping permissions for principal '$principal' as SSO group was not found" "WARN"
+                            Write-Log "Resource Pool '$($resourcePool.Name)': Skipping permissions for principal '$($principal)' as SSO group was not found" "WARN"
                             continue
                         }
 
-                        Write-Log "Resource Pool '$($resourcePool.Name)': Applying permissions for tag '$tagName' (role: $($permissionRow.RoleName)) to $($vmsInResourcePool.Count) VMs" "INFO"
+                        Write-Log "Resource Pool '$($resourcePool.Name)': Applying permissions for tag '$($tagName)' (role: $($permissionRow.RoleName)) to $($vmsInResourcePool.Count) VMs" "INFO"
 
                         # Apply permissions to all VMs in the resource pool
                         foreach ($vm in $vmsInResourcePool) {
@@ -1107,11 +1107,11 @@ function Process-FolderBasedPermissions {
                                     "Created" {
                                         $vmPermissionsApplied++
                                         $script:ExecutionSummary.PermissionsAssigned++
-                                        Write-Log "Resource Pool '$($resourcePool.Name)': Applied permission to VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName))" "DEBUG"
+                                        Write-Log "Resource Pool '$($resourcePool.Name)': Applied permission to VM '$($vm.Name)' for tag '$($tagName)' (role: $($permissionRow.RoleName))" "DEBUG"
                                     }
                                     "Skipped" {
                                         $script:ExecutionSummary.PermissionsSkipped++
-                                        Write-Log "Resource Pool '$($resourcePool.Name)': Skipped permission for VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName)) - $($result.Reason)" "DEBUG"
+                                        Write-Log "Resource Pool '$($resourcePool.Name)': Skipped permission for VM '$($vm.Name)' for tag '$($tagName)' (role: $($permissionRow.RoleName)) - $($result.Reason)" "DEBUG"
                                     }
                                     "Failed" {
                                         $script:ExecutionSummary.PermissionsFailed++
@@ -1121,13 +1121,13 @@ function Process-FolderBasedPermissions {
                                 }
                             }
                             catch {
-                                Write-Log "Resource Pool '$($resourcePool.Name)': Error applying permissions to VM '$($vm.Name)' for tag '$tagName' (role: $($permissionRow.RoleName)): $_" "ERROR"
+                                Write-Log "Resource Pool '$($resourcePool.Name)': Error applying permissions to VM '$($vm.Name)' for tag '$($tagName)' (role: $($permissionRow.RoleName)): $_" "ERROR"
                                 $errors++
                             }
                         }
                     }
 
-                    Write-Log "Resource Pool '$($resourcePool.Name)': Completed processing tag '$tagName' ($rpProcessedTagCount of $($resourcePoolTags.Count))" "DEBUG"
+                    Write-Log "Resource Pool '$($resourcePool.Name)': Completed processing tag '$($tagName)' ($rpProcessedTagCount of $($resourcePoolTags.Count))" "DEBUG"
                 }
 
                 Write-Log "Resource Pool '$($resourcePool.Name)': Finished processing all $($resourcePoolTags.Count) tags" "INFO"
@@ -1139,17 +1139,17 @@ function Process-FolderBasedPermissions {
 
             # Progress reporting for large environments
             if ($resourcePoolsProcessed % 25 -eq 0) {
-                Write-Log "Resource Pool processing progress: $resourcePoolsProcessed/$($allResourcePools.Count) resource pools analyzed" "INFO"
+                Write-Log "Resource Pool processing progress: $($resourcePoolsProcessed)/$($allResourcePools.Count) resource pools analyzed" "INFO"
             }
         }
 
         Write-Log "Folder and Resource Pool Based Permission Propagation Summary:" "INFO"
-        Write-Log "  Folders Processed: $foldersProcessed" "INFO"
-        Write-Log "  Folder Tags Found: $folderTagsFound" "INFO"
-        Write-Log "  Resource Pools Processed: $resourcePoolsProcessed" "INFO"
-        Write-Log "  Resource Pool Tags Found: $resourcePoolTagsFound" "INFO"
-        Write-Log "  VM Permissions Applied: $vmPermissionsApplied" "INFO"
-        Write-Log "  Errors: $errors" "INFO"
+        Write-Log "  Folders Processed: $($foldersProcessed)" "INFO"
+        Write-Log "  Folder Tags Found: $($folderTagsFound)" "INFO"
+        Write-Log "  Resource Pools Processed: $($resourcePoolsProcessed)" "INFO"
+        Write-Log "  Resource Pool Tags Found: $($resourcePoolTagsFound)" "INFO"
+        Write-Log "  VM Permissions Applied: $($vmPermissionsApplied)" "INFO"
+        Write-Log "  Errors: $($errors)" "INFO"
 
         return @{
             FoldersProcessed = $foldersProcessed
@@ -1392,14 +1392,14 @@ function Assign-PermissionIfNeeded {
             $role = $roles[0]
         } else {
             # Multiple roles found - try to find exact match or use first one
-            Write-Log "WARNING: Multiple roles found with name '$RoleName' ($($roles.Count) matches). Using first match." "WARN"
+            Write-Log "WARNING: Multiple roles found with name '$($RoleName)' ($($roles.Count) matches). Using first match." "WARN"
             $exactMatch = $roles | Where-Object { $_.Name -ceq $RoleName }
             if ($exactMatch) {
                 $role = $exactMatch[0]  # Use first exact match if multiple exact matches
-                Write-Log "Found exact case-sensitive match for role '$RoleName'" "DEBUG"
+                Write-Log "Found exact case-sensitive match for role '$($RoleName)'" "DEBUG"
             } else {
                 $role = $roles[0]  # Use first role if no exact match
-                Write-Log "Using first role match: '$($role.Name)' for requested role '$RoleName'" "DEBUG"
+                Write-Log "Using first role match: '$($role.Name)' for requested role '$($RoleName)'" "DEBUG"
             }
         }
         
@@ -1435,7 +1435,7 @@ function Assign-PermissionIfNeeded {
         
         # Validate we have a single role object before assignment
         if (-not $role) {
-            throw "Role object is null after lookup/creation for role '$RoleName'"
+            throw "Role object is null after lookup/creation for role '$($RoleName)'"
         }
         if ($role -is [array]) {
             throw "Role object is still an array after processing. This should not happen. Role count: $($role.Count)"
@@ -1467,7 +1467,7 @@ function Assign-PermissionIfNeeded {
             Write-Log "    Principal: '$($Principal)'" "WARN"
             Write-Log "    Role: '$($RoleName)'" "WARN"
             Write-Log "    Reason: Permission likely inherited from folder level" "WARN"
-            Write-Log "    Error: $errorMessage" "WARN"
+            Write-Log "    Error: $($errorMessage)" "WARN"
             Write-Log "⚠️  ================================== ⚠️" "WARN"
             
             return @{
@@ -1565,13 +1565,13 @@ function Find-VMsWithoutExplicitPermissions {
         
         # Progress reporting
         if ($totalChecked % 50 -eq 0) {
-            Write-Log "Permission analysis progress: $totalChecked/$($VMs.Count) VMs checked" "INFO"
+            Write-Log "Permission analysis progress: $($totalChecked)/$($VMs.Count) VMs checked" "INFO"
         }
     }
     
     # Generate summary report
     Write-Log "=== Permission Analysis Summary ===" "INFO"
-    Write-Log "Total VMs Analyzed: $totalChecked" "INFO"
+    Write-Log "Total VMs Analyzed: $($totalChecked)" "INFO"
     Write-Log "VMs with explicit permissions: $($vmsWithExplicit.Count)" "INFO"
     Write-Log "VMs with only inherited permissions: $($vmsWithOnlyInherited.Count)" "INFO"
     Write-Log "VMs with no permissions: $($vmsWithoutPermissions.Count)" "INFO"
@@ -1584,7 +1584,7 @@ function Find-VMsWithoutExplicitPermissions {
             # Get OS mapping data
             $osMappingData = Import-Csv -Path $OsMappingCsvPath
             if (-not $osMappingData -or $osMappingData.Count -eq 0) {
-                Write-Log "No OS mapping data found in $OsMappingCsvPath - skipping OS tag assignment for inherited VMs" "WARN"
+                Write-Log "No OS mapping data found in $($OsMappingCsvPath) - skipping OS tag assignment for inherited VMs" "WARN"
             } else {
                 $inheritedVMsOSTagged = 0
                 $inheritedVMsOSSkipped = 0
@@ -1650,7 +1650,7 @@ function Find-VMsWithoutExplicitPermissions {
                         
                         if (-not $vmMatched) {
                             $osNames = ($osToCheck | ForEach-Object { "$($_.Source): '$($_.OSName)'" }) -join "; "
-                            Write-Log "Inherited VM '$($vm.Name)' did not match any OS patterns. Available OS info: $osNames" "WARN"
+                            Write-Log "Inherited VM '$($vm.Name)' did not match any OS patterns. Available OS info: $($osNames)" "WARN"
                             $inheritedVMsOSSkipped++
                         }
                     }
@@ -1660,7 +1660,7 @@ function Find-VMsWithoutExplicitPermissions {
                     }
                 }
                 
-                Write-Log "OS tag processing for inherited VMs completed: $inheritedVMsOSTagged tagged, $inheritedVMsOSSkipped skipped" "INFO"
+                Write-Log "OS tag processing for inherited VMs completed: $($inheritedVMsOSTagged) tagged, $($inheritedVMsOSSkipped) skipped" "INFO"
             }
         }
         catch {
@@ -1675,19 +1675,19 @@ function Find-VMsWithoutExplicitPermissions {
         if ($vmsWithOnlyInherited.Count -gt 0) {
             $inheritedOnlyReport = Join-Path $script:reportsFolder "VMsWithOnlyInheritedPermissions_$($Environment)_$timestamp.csv"
             $vmsWithOnlyInherited | Export-Csv -Path $inheritedOnlyReport -NoTypeInformation
-            Write-Log "VMs with only inherited permissions saved to: $inheritedOnlyReport" "INFO"
+            Write-Log "VMs with only inherited permissions saved to: $($inheritedOnlyReport)" "INFO"
         }
         
         if ($vmsWithoutPermissions.Count -gt 0) {
             $noPermissionsReport = Join-Path $script:reportsFolder "VMsWithNoPermissions_$($Environment)_$timestamp.csv"
             $vmsWithoutPermissions | Export-Csv -Path $noPermissionsReport -NoTypeInformation
-            Write-Log "VMs with no permissions saved to: $noPermissionsReport" "INFO"
+            Write-Log "VMs with no permissions saved to: $($noPermissionsReport)" "INFO"
         }
         
         if ($vmsWithExplicit.Count -gt 0) {
             $explicitPermissionsReport = Join-Path $script:reportsFolder "VMsWithExplicitPermissions_$($Environment)_$timestamp.csv"
             $vmsWithExplicit | Export-Csv -Path $explicitPermissionsReport -NoTypeInformation
-            Write-Log "VMs with explicit permissions saved to: $explicitPermissionsReport" "INFO"
+            Write-Log "VMs with explicit permissions saved to: $($explicitPermissionsReport)" "INFO"
         }
     }
     catch {
@@ -1818,30 +1818,30 @@ try {
     foreach ($testPath in $possibleConfigPaths) {
         if (Test-Path $testPath) {
             $configPath = $testPath
-            Write-Log "Found configuration file at: $configPath" "INFO"
+            Write-Log "Found configuration file at: $($configPath)" "INFO"
             break
         }
     }
 
     if ($configPath -and (Test-Path $configPath)) {
         try {
-            Write-Log "Loading network share configuration from: $configPath" "INFO"
+            Write-Log "Loading network share configuration from: $($configPath)" "INFO"
             $config = Import-PowerShellDataFile -Path $configPath
 
             if ($config.Environments -and $config.Environments.$Environment) {
-                Write-Log "Environment '$Environment' found in configuration" "INFO"
+                Write-Log "Environment '$($Environment)' found in configuration" "INFO"
                 $envDataPaths = $config.Environments.$Environment.DataPaths
 
                 if ($envDataPaths.EnableNetworkShare -eq $true) {
                     $useNetworkShare = $true
                     $networkShareConfig = $envDataPaths
-                    Write-Log "Network share enabled for environment: $Environment" "INFO"
+                    Write-Log "Network share enabled for environment: $($Environment)" "INFO"
                     Write-Log "Network share path: $($envDataPaths.NetworkSharePath)" "INFO"
                 } else {
-                    Write-Log "Network share disabled for environment: $Environment (EnableNetworkShare = $($envDataPaths.EnableNetworkShare))" "INFO"
+                    Write-Log "Network share disabled for environment: $($Environment) (EnableNetworkShare = $($envDataPaths.EnableNetworkShare))" "INFO"
                 }
             } else {
-                Write-Log "Environment '$Environment' not found in configuration file" "WARN"
+                Write-Log "Environment '$($Environment)' not found in configuration file" "WARN"
                 Write-Log "Available environments: $($config.Environments.Keys -join ', ')" "INFO"
             }
         }
@@ -1879,7 +1879,33 @@ try {
 
                 # Get App Permissions CSV from network share
                 $appPermFileName = Split-Path $AppPermissionsCsvPath -Leaf
-                $appResult = Get-NetworkShareCSV -NetworkPath $networkShareConfig.NetworkSharePath -LocalFallbackPath (Split-Path $AppPermissionsCsvPath -Parent) -FileName $appPermFileName -Credential $shareCredential -EnableCaching $networkShareConfig.CacheNetworkFiles -CacheExpiryHours $networkShareConfig.CacheExpiryHours
+                $localFallbackPath = Split-Path $AppPermissionsCsvPath -Parent
+
+                # Debug parameter values
+                Write-Log "Network share parameters:" "DEBUG"
+                Write-Log "  NetworkPath: '$($networkShareConfig.NetworkSharePath)'" "DEBUG"
+                Write-Log "  LocalFallbackPath: '$($localFallbackPath)'" "DEBUG"
+                Write-Log "  FileName: '$($appPermFileName)'" "DEBUG"
+                Write-Log "  EnableCaching: '$($networkShareConfig.CacheNetworkFiles)'" "DEBUG"
+                Write-Log "  CacheExpiryHours: '$($networkShareConfig.CacheExpiryHours)'" "DEBUG"
+
+                # Validate required parameters
+                if ([string]::IsNullOrWhiteSpace($networkShareConfig.NetworkSharePath)) {
+                    throw "NetworkSharePath is null or empty: '$($networkShareConfig.NetworkSharePath)'"
+                }
+                if ([string]::IsNullOrWhiteSpace($localFallbackPath)) {
+                    throw "LocalFallbackPath is null or empty: '$localFallbackPath'"
+                }
+                if ([string]::IsNullOrWhiteSpace($appPermFileName)) {
+                    throw "App Permissions CSV filename is null or empty: '$appPermFileName'"
+                }
+
+                # Set default values for optional parameters if needed
+                $enableCaching = if ($networkShareConfig.CacheNetworkFiles -ne $null) { $networkShareConfig.CacheNetworkFiles } else { $true }
+                $cacheExpiryHours = if ($networkShareConfig.CacheExpiryHours -ne $null) { $networkShareConfig.CacheExpiryHours } else { 4 }
+
+                Write-Log "Calling Get-NetworkShareCSV with validated parameters" "DEBUG"
+                $appResult = Get-NetworkShareCSV -NetworkPath $networkShareConfig.NetworkSharePath -LocalFallbackPath $localFallbackPath -FileName $appPermFileName -Credential $shareCredential -EnableCaching $enableCaching -CacheExpiryHours $cacheExpiryHours
 
                 if ($appResult.Success) {
                     $appPermissionData = $appResult.Data
@@ -1888,7 +1914,7 @@ try {
                     throw "Failed to load App Permissions CSV from network share: $($appResult.Error)"
                 }
             } else {
-                throw "Network share script not found: $networkShareScriptPath"
+                throw "Network share script not found: $($networkShareScriptPath)"
             }
         }
         catch {
@@ -1900,7 +1926,7 @@ try {
     # Fallback to local file loading for App Permissions CSV
     if (-not $useNetworkShare -or $appPermissionData.Count -eq 0) {
         if (-not (Test-Path $AppPermissionsCsvPath)) {
-            throw "Application Permissions CSV not found: $AppPermissionsCsvPath"
+            throw "Application Permissions CSV not found: $($AppPermissionsCsvPath)"
         }
         $appPermissionData = Import-Csv -Path $AppPermissionsCsvPath
         Write-Log "Loaded App Permissions CSV from local file: $($appPermissionData.Count) rows" "INFO"
@@ -1911,7 +1937,31 @@ try {
         try {
             # Get OS Mapping CSV from network share
             $osMappingFileName = Split-Path $OsMappingCsvPath -Leaf
-            $osResult = Get-NetworkShareCSV -NetworkPath $networkShareConfig.NetworkSharePath -LocalFallbackPath (Split-Path $OsMappingCsvPath -Parent) -FileName $osMappingFileName -Credential $shareCredential -EnableCaching $networkShareConfig.CacheNetworkFiles -CacheExpiryHours $networkShareConfig.CacheExpiryHours
+            $osLocalFallbackPath = Split-Path $OsMappingCsvPath -Parent
+
+            # Debug parameter values for OS Mapping
+            Write-Log "OS Mapping network share parameters:" "DEBUG"
+            Write-Log "  NetworkPath: '$($networkShareConfig.NetworkSharePath)'" "DEBUG"
+            Write-Log "  LocalFallbackPath: '$($osLocalFallbackPath)'" "DEBUG"
+            Write-Log "  FileName: '$($osMappingFileName)'" "DEBUG"
+
+            # Validate required parameters
+            if ([string]::IsNullOrWhiteSpace($networkShareConfig.NetworkSharePath)) {
+                throw "NetworkSharePath is null or empty for OS Mapping: '$($networkShareConfig.NetworkSharePath)'"
+            }
+            if ([string]::IsNullOrWhiteSpace($osLocalFallbackPath)) {
+                throw "LocalFallbackPath is null or empty for OS Mapping: '$osLocalFallbackPath'"
+            }
+            if ([string]::IsNullOrWhiteSpace($osMappingFileName)) {
+                throw "OS Mapping CSV filename is null or empty: '$osMappingFileName'"
+            }
+
+            # Set default values for optional parameters if needed
+            $osEnableCaching = if ($networkShareConfig.CacheNetworkFiles -ne $null) { $networkShareConfig.CacheNetworkFiles } else { $true }
+            $osCacheExpiryHours = if ($networkShareConfig.CacheExpiryHours -ne $null) { $networkShareConfig.CacheExpiryHours } else { 4 }
+
+            Write-Log "Calling Get-NetworkShareCSV for OS Mapping with validated parameters" "DEBUG"
+            $osResult = Get-NetworkShareCSV -NetworkPath $networkShareConfig.NetworkSharePath -LocalFallbackPath $osLocalFallbackPath -FileName $osMappingFileName -Credential $shareCredential -EnableCaching $osEnableCaching -CacheExpiryHours $osCacheExpiryHours
 
             if ($osResult.Success) {
                 $osMappingData = $osResult.Data
@@ -2109,16 +2159,16 @@ try {
             }
         }
         else {
-            Write-Log "Skipping App row with non-matching category: '$($row.TagCategory)' (expected: '$AppCategoryName')" "INFO"
+            Write-Log "Skipping App row with non-matching category: '$($row.TagCategory)' (expected: '$($AppCategoryName)')" "INFO"
         }
         
         # Progress reporting
         if ($appRowsProcessed % 10 -eq 0) {
-            Write-Log "App permissions progress: $appRowsProcessed/$($appPermissionData.Count) rows processed" "INFO"
+            Write-Log "App permissions progress: $($appRowsProcessed)/$($appPermissionData.Count) rows processed" "INFO"
         }
     }
     
-    Write-Log "App Permissions Summary: $appRowsProcessed rows processed, $appTagsCreated tags created, $appPermissionsProcessed permissions assigned" "INFO"
+    Write-Log "App Permissions Summary: $($appRowsProcessed) rows processed, $($appTagsCreated) tags created, $($appPermissionsProcessed) permissions assigned" "INFO"
     
     # --- Processing Part 2: OS Tagging and Permissions ---
     Write-Log "=== Processing OS Tagging and Permissions from $($OsMappingCsvPath) ===" "INFO"
@@ -2135,11 +2185,11 @@ try {
         }
     }
     
-    Write-Log "Pre-created $osTagsCreated OS tags" "INFO"
+    Write-Log "Pre-created $($osTagsCreated) OS tags" "INFO"
     
     # Get VMs for processing - handle single VM mode for vSphere Client integration
     if ($SpecificVM) {
-        Write-Log "vSphere Client Mode: Processing specific VM '$SpecificVM'" "INFO"
+        Write-Log "vSphere Client Mode: Processing specific VM '$($SpecificVM)'" "INFO"
         $allVms = Get-VM -Name $SpecificVM -ErrorAction SilentlyContinue
 
         if (-not $allVms) {
@@ -2337,14 +2387,14 @@ try {
         
         if (-not $vmMatched) {
             $osNames = ($osToCheck | ForEach-Object { "$($_.Source): '$($_.OSName)'" }) -join "; "
-            Write-Log "VM '$($vm.Name)' did not match any OS patterns. Available OS info: $osNames" "WARN"
+            Write-Log "VM '$($vm.Name)' did not match any OS patterns. Available OS info: $($osNames)" "WARN"
             $osSkippedCount++
             $script:ExecutionSummary.VMsSkipped++
         }
         
         # Progress reporting
         if ($osProcessedCount % 25 -eq 0) {
-            Write-Log "OS processing progress: $osProcessedCount/$($allVms.Count) VMs (Tagged: $osTaggedCount, Permissions: $osPermissionCount, Skipped: $osSkippedCount)" "INFO"
+            Write-Log "OS processing progress: $($osProcessedCount)/$($allVms.Count) VMs (Tagged: $($osTaggedCount), Permissions: $($osPermissionCount), Skipped: $($osSkippedCount))" "INFO"
         }
 
         # Track processed VM for deduplication across vCenter connections
@@ -2363,7 +2413,7 @@ try {
         }
     }
 
-    Write-Log "OS Processing Complete - Total VMs: $($allVms.Count), Processed: $osProcessedCount, Tagged: $osTaggedCount, Permissions Assigned: $osPermissionCount, Skipped: $osSkippedCount" "INFO"
+    Write-Log "OS Processing Complete - Total VMs: $($allVms.Count), Processed: $($osProcessedCount), Tagged: $($osTaggedCount), Permissions Assigned: $($osPermissionCount), Skipped: $($osSkippedCount)" "INFO"
     
     # --- Permission Analysis ---
     Write-Log "=== Starting Comprehensive Permission Analysis ===" "INFO"
@@ -2472,7 +2522,7 @@ try {
                 
                 if (-not $vmMatched) {
                     $osNames = ($osToCheck | ForEach-Object { "$($_.Source): '$($_.OSName)'" }) -join "; "
-                    Write-Log "Inherited VM '$($vm.Name)' did not match any OS patterns. Available OS info: $osNames" "WARN"
+                    Write-Log "Inherited VM '$($vm.Name)' did not match any OS patterns. Available OS info: $($osNames)" "WARN"
                     $inheritedVMsOSSkipped++
                 }
             }
@@ -2483,7 +2533,7 @@ try {
             }
         }
         
-        Write-Log "OS tag processing for inherited VMs completed: $inheritedVMsOSTagged tagged, $inheritedVMsOSSkipped skipped" "INFO"
+        Write-Log "OS tag processing for inherited VMs completed: $($inheritedVMsOSTagged) tagged, $($inheritedVMsOSSkipped) skipped" "INFO"
     }
     
     # --- Generate Final Reports and Summary ---
@@ -2496,8 +2546,8 @@ try {
     
     # Generate comprehensive execution summary
     Write-Log "=== FINAL EXECUTION SUMMARY ===" "INFO"
-    Write-Log "Environment: $Environment" "INFO"
-    Write-Log "vCenter Server: $vCenterServer" "INFO"
+    Write-Log "Environment: $($Environment)" "INFO"
+    Write-Log "vCenter Server: $($vCenterServer)" "INFO"
     Write-Log "Execution Start Time: $(Get-Date)" "INFO"
     Write-Log "=== CSV Data Processing ===" "INFO"
     Write-Log "App Permission Rows: $($appPermissionData.Count)" "INFO"
@@ -2510,9 +2560,9 @@ try {
     Write-Log "VMs Successfully Processed: $($script:ExecutionSummary.VMsProcessed)" "INFO"
     Write-Log "VMs Skipped: $($script:ExecutionSummary.VMsSkipped)" "INFO"
     Write-Log "=== Permission Assignment Results ===" "INFO"
-    Write-Log "Permissions Successfully Assigned: $totalPermissionsAssigned" "INFO"
-    Write-Log "Permissions Skipped (duplicates/conflicts): $totalPermissionsSkipped" "INFO"
-    Write-Log "Permission Assignment Failures: $totalPermissionsFailed" "INFO"
+    Write-Log "Permissions Successfully Assigned: $($totalPermissionsAssigned)" "INFO"
+    Write-Log "Permissions Skipped (duplicates/conflicts): $($totalPermissionsSkipped)" "INFO"
+    Write-Log "Permission Assignment Failures: $($totalPermissionsFailed)" "INFO"
 
     # Multi-Role Assignment Analysis
     $multiRoleAssignments = $script:PermissionResults | Group-Object VMName, Principal |
@@ -2526,7 +2576,7 @@ try {
             $vmName = $assignment.Group[0].VMName
             $principal = $assignment.Group[0].Principal
             $roles = ($assignment.Group | Where-Object { $_.Action -eq "Created" } | ForEach-Object { $_.Role }) -join ', '
-            Write-Log "  VM: '$vmName', Principal: '$principal', Roles: [$roles]" "INFO"
+            Write-Log "  VM: '$($vmName)', Principal: '$($principal)', Roles: [$roles]" "INFO"
         }
 
         if ($multiRoleAssignments.Count -gt 10) {
@@ -2556,7 +2606,7 @@ try {
         "FAILED"
     }
     
-    Write-Log "=== OVERALL STATUS: $executionStatus ===" "INFO"
+    Write-Log "=== OVERALL STATUS: $($executionStatus) ===" "INFO"
     
    # --- Save Detailed Reports ---
 Write-Log "=== Saving Detailed Reports ===" "INFO"
@@ -2568,7 +2618,7 @@ try {
     if ($script:PermissionResults.Count -gt 0) {
         $permissionResultsReport = Join-Path $script:reportsFolder "PermissionAssignmentResults_$($Environment)_$timestamp.csv"
         $script:PermissionResults | Export-Csv -Path $permissionResultsReport -NoTypeInformation
-        Write-Log "Permission assignment results saved to: $permissionResultsReport" "INFO"
+        Write-Log "Permission assignment results saved to: $($permissionResultsReport)" "INFO"
     }
     
     # Save execution summary
@@ -2595,7 +2645,7 @@ try {
     }
     
     $summaryData | Export-Csv -Path $summaryReport -NoTypeInformation
-    Write-Log "Execution summary saved to: $summaryReport" "INFO"
+    Write-Log "Execution summary saved to: $($summaryReport)" "INFO"
     
     # Save VMs that need attention (only inherited permissions or no permissions)
     $vmsNeedingAttention = @()
@@ -2609,11 +2659,11 @@ try {
     if ($vmsNeedingAttention.Count -gt 0) {
         $attentionReport = Join-Path $script:reportsFolder "VMsNeedingAttention_$($Environment)_$timestamp.csv"
         $vmsNeedingAttention | Export-Csv -Path $attentionReport -NoTypeInformation
-        Write-Log "VMs needing attention saved to: $attentionReport" "INFO"
+        Write-Log "VMs needing attention saved to: $($attentionReport)" "INFO"
         Write-Log "ATTENTION: $($vmsNeedingAttention.Count) VMs require manual review for permissions" "WARN"
     }
     
-    Write-Log "All reports saved successfully to: $script:reportsFolder" "INFO"
+    Write-Log "All reports saved successfully to: $($script:reportsFolder)" "INFO"
 }
 catch {
     Write-Log "Failed to save some reports: $_" "ERROR"
@@ -2668,19 +2718,20 @@ finally {
     Write-Log "PowerCLI certificate policy maintained as 'Ignore' for subsequent operations." "INFO"
     
     Write-Log "Script execution finished." "INFO"
-    Write-Log "Log files saved to: $script:logFolder" "INFO"
-    Write-Log "Report files saved to: $script:reportsFolder" "INFO"
+    Write-Log "Log files saved to: $($script:logFolder)" "INFO"
+    Write-Log "Report files saved to: $($script:reportsFolder)" "INFO"
     
     # Display quick summary to console
     Write-Host "`n=== QUICK SUMMARY ===" -ForegroundColor Cyan
-    Write-Host "Permissions Assigned: $totalPermissionsAssigned" -ForegroundColor Green
-    Write-Host "Permissions Skipped: $totalPermissionsSkipped" -ForegroundColor Yellow
-    Write-Host "Permission Failures: $totalPermissionsFailed" -ForegroundColor Red
+    Write-Host "Permissions Assigned: $($totalPermissionsAssigned)" -ForegroundColor Green
+    Write-Host "Permissions Skipped: $($totalPermissionsSkipped)" -ForegroundColor Yellow
+    Write-Host "Permission Failures: $($totalPermissionsFailed)" -ForegroundColor Red
     Write-Host "Container-Based Permissions: $($script:ExecutionSummary.FolderBasedPermissions.VMPermissionsApplied)" -ForegroundColor Cyan
     Write-Host "Folders with Tags: $($script:ExecutionSummary.FolderBasedPermissions.FolderTagsFound)" -ForegroundColor Cyan
     Write-Host "Resource Pools with Tags: $($script:ExecutionSummary.FolderBasedPermissions.ResourcePoolTagsFound)" -ForegroundColor Cyan
     Write-Host "VMs Needing Attention: $($vmsNeedingAttention.Count)" -ForegroundColor Yellow
-    Write-Host "Check logs for detailed results: $script:logFolder" -ForegroundColor White
-    Write-Host "Check reports for CSV exports: $script:reportsFolder" -ForegroundColor White
+    Write-Host "Check logs for detailed results: $($script:logFolder)" -ForegroundColor White
+    Write-Host "Check reports for CSV exports: $($script:reportsFolder)" -ForegroundColor White
+    Write-Host "Overall Status: $($executionStatus)" -ForegroundColor (if ($executionStatus -eq "SUCCESS") { "Green" } elseif ($executionStatus -eq "PARTIAL SUCCESS") { "Yellow" } else { "Red" })
 }
 #endregion
