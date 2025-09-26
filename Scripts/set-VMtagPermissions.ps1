@@ -2732,6 +2732,12 @@ finally {
     Write-Host "VMs Needing Attention: $($vmsNeedingAttention.Count)" -ForegroundColor Yellow
     Write-Host "Check logs for detailed results: $($script:logFolder)" -ForegroundColor White
     Write-Host "Check reports for CSV exports: $($script:reportsFolder)" -ForegroundColor White
-    Write-Host "Overall Status: $($executionStatus)" -ForegroundColor (if ($executionStatus -eq "SUCCESS") { "Green" } elseif ($executionStatus -eq "PARTIAL SUCCESS") { "Yellow" } else { "Red" })
+    # Determine status color
+    $statusColor = switch ($executionStatus) {
+        "SUCCESS" { "Green" }
+        "PARTIAL SUCCESS" { "Yellow" }
+        default { "Red" }
+    }
+    Write-Host "Overall Status: $($executionStatus)" -ForegroundColor $statusColor
 }
 #endregion
