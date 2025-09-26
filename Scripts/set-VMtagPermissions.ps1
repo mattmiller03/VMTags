@@ -118,7 +118,10 @@ Param(
     [string]$SpecificVM,
 
     [Parameter(Mandatory = $false, HelpMessage = "vSphere Client integration mode - optimized for single VM processing")]
-    [switch]$vSphereClientMode
+    [switch]$vSphereClientMode,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Force reprocessing of VMs even if they were already processed today")]
+    [switch]$ForceReprocess
 )
 
 #region A) Credential Loading and Configs
@@ -2301,19 +2304,23 @@ try {
         }
     }
 
-    # Filter out VMs that have already been processed by this environment today
+    # Filter out VMs that have already been processed by this environment today (unless ForceReprocess is enabled)
     $originalCount = $allVms.Count
-    $allVms = $allVms | Where-Object {
-        $vmKey = "$($_.Name)|$($_.Id)"  # Use Name and Id for uniqueness
-        if ($processedVMs.ContainsKey($vmKey)) {
-            Write-Log "Skipping VM '$($_.Name)' - already processed by vCenter '$($processedVMs[$vmKey])'" "DEBUG"
-            return $false
+    if (-not $ForceReprocess) {
+        $allVms = $allVms | Where-Object {
+            $vmKey = "$($_.Name)|$($_.Id)"  # Use Name and Id for uniqueness
+            if ($processedVMs.ContainsKey($vmKey)) {
+                Write-Log "Skipping VM '$($_.Name)' - already processed by vCenter '$($processedVMs[$vmKey])'" "DEBUG"
+                return $false
+            }
+            return $true
         }
-        return $true
-    }
 
-    if ($originalCount -ne $allVms.Count) {
-        Write-Log "Filtered out $($originalCount - $allVms.Count) already-processed VMs. Processing $($allVms.Count) remaining VMs." "INFO"
+        if ($originalCount -ne $allVms.Count) {
+            Write-Log "Filtered out $($originalCount - $allVms.Count) already-processed VMs. Processing $($allVms.Count) remaining VMs." "INFO"
+        }
+    } else {
+        Write-Log "ForceReprocess enabled - processing all $($allVms.Count) VMs regardless of previous processing status" "INFO"
     }
     
     $osProcessedCount = 0

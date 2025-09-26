@@ -62,7 +62,12 @@
     Enable automation mode to bypass all user prompts and waits.
     Useful for Aria Operations, CI/CD pipelines, or other automated execution contexts.
     When enabled, all Read-Host prompts return default values and Wait-ForUserInput is skipped.
-    
+
+.PARAMETER ForceReprocess
+    Force reprocessing of VMs even if they were already processed today.
+    Bypasses the daily deduplication tracking that prevents VMs from being processed multiple times.
+    Useful for testing, debugging, or when you need to force updates to specific VMs.
+
 .EXAMPLE
     .\VM_TagPermissions_Launcher_v2.ps1 -Environment "PROD"
     
@@ -116,7 +121,14 @@
 
     Execute against PROD environment with stored credentials in full automation mode.
     All user prompts and waits will be bypassed. Ideal for Aria Operations or CI/CD execution.
-    
+
+.EXAMPLE
+    .\VM_TagPermissions_Launcher_v2.ps1 -Environment "DEV" -ForceReprocess -ForceDebug
+
+    Execute against DEV environment with force reprocessing enabled and debug logging.
+    All VMs will be processed regardless of whether they were already processed today.
+    Useful for testing tag changes or troubleshooting permission application issues.
+
 .NOTES
     Name: VM_TagPermissions_Launcher_v2.ps1
     Author: [Your Name]
@@ -209,7 +221,10 @@ param(
     [switch]$SkipNetworkTests,
 
     [Parameter(Mandatory = $false, HelpMessage = "Enable automation mode (bypass all user prompts)")]
-    [switch]$AutomationMode
+    [switch]$AutomationMode,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Force reprocessing of VMs even if they were already processed today")]
+    [switch]$ForceReprocess
 )
 
 #region Initialization
@@ -2349,6 +2364,12 @@ function Start-MainScript {
             }
         } else {
             Write-Log "Hierarchical tag inheritance is disabled" -Level Debug
+        }
+
+        # Add ForceReprocess parameter if specified
+        if ($ForceReprocess) {
+            $scriptArgs += '-ForceReprocess'
+            Write-Log "Force reprocess mode enabled - VMs will be processed regardless of previous processing status" -Level Info
         }
 
         # Combine all arguments
