@@ -55,19 +55,19 @@ function Write-CredSetupLog {
 
 try {
     Write-CredSetupLog "=== VMTags Network Share Credential Setup ===" "INFO"
-    Write-CredSetupLog "Share Path: $SharePath" "INFO"
-    Write-CredSetupLog "Credential Name: $CredentialName" "INFO"
+    Write-CredSetupLog "Share Path: $($SharePath)" "INFO"
+    Write-CredSetupLog "Credential Name: $($CredentialName)" "INFO"
 
     # Get username if not provided
     if (-not $Username) {
         $Username = Read-Host "Enter username for network share access (e.g., DOMAIN\username or username@domain.com)"
     }
 
-    Write-CredSetupLog "Username: $Username" "INFO"
+    Write-CredSetupLog "Username: $($Username)" "INFO"
 
     # Get password securely
     Write-Host ""
-    Write-Host "Enter password for $Username:" -ForegroundColor Yellow
+    Write-Host "Enter password for $($Username):" -ForegroundColor Yellow
     $SecurePassword = Read-Host -AsSecureString
 
     if (-not $SecurePassword) {
@@ -79,7 +79,7 @@ try {
 
     # Extract server name from UNC path for cmdkey
     $serverName = $SharePath -replace '^\\\\([^\\]+).*', '$1'
-    Write-CredSetupLog "Server name extracted: $serverName" "INFO"
+    Write-CredSetupLog "Server name extracted: $($serverName)" "INFO"
 
     # Convert SecureString to plain text for cmdkey
     $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($SecurePassword)
