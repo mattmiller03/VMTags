@@ -251,23 +251,23 @@ function Test-AriaServiceCredentials {
         Write-Host "Connecting to vCenter: $($VCenterServer)" -ForegroundColor Yellow
         $connection = Connect-VIServer -Server $VCenterServer -Credential $credential -ErrorAction Stop
 
-        Write-Host "✓ Successfully authenticated with service account: $($credential.UserName)" -ForegroundColor Green
-        Write-Host "✓ Connected to vCenter: $($connection.Name) (Version: $($connection.Version))" -ForegroundColor Green
+        Write-Host "+ Successfully authenticated with service account: $($credential.UserName)" -ForegroundColor Green
+        Write-Host "+ Connected to vCenter: $($connection.Name) (Version: $($connection.Version))" -ForegroundColor Green
 
         # Test basic permissions
         $vmCount = @(Get-VM -ErrorAction SilentlyContinue).Count
-        Write-Host "✓ Service account can query VMs: $($vmCount) VMs found" -ForegroundColor Green
+        Write-Host "+ Service account can query VMs: $($vmCount) VMs found" -ForegroundColor Green
 
         $tagCount = @(Get-Tag -ErrorAction SilentlyContinue).Count
-        Write-Host "✓ Service account can query tags: $($tagCount) tags found" -ForegroundColor Green
+        Write-Host "+ Service account can query tags: $($tagCount) tags found" -ForegroundColor Green
 
         Disconnect-VIServer -Server $connection -Confirm:$false -Force
 
-        Write-Host "✓ Service account credentials are valid and functional!" -ForegroundColor Green
+        Write-Host "+ Service account credentials are valid and functional!" -ForegroundColor Green
         return $true
 
     } catch {
-        Write-Host "✗ Service account credential test failed: $_" -ForegroundColor Red
+        Write-Host "x Service account credential test failed: $_" -ForegroundColor Red
         return $false
     }
 }
