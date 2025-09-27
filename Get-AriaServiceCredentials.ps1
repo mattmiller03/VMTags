@@ -80,7 +80,7 @@ function Get-AriaServiceCredentials {
         [string]$Method = 'Auto'
     )
 
-    Write-Verbose "Retrieving Aria service account credentials for environment: $Environment"
+    Write-Verbose "Retrieving Aria service account credentials for environment: $($Environment)"
 
     # Auto-detect available credential methods
     if ($Method -eq 'Auto') {
@@ -91,14 +91,14 @@ function Get-AriaServiceCredentials {
             Write-Verbose "Auto-detected method: EnvironmentVariables"
         }
         # Check encrypted file
-        elseif (Test-Path ".\Credentials\ServiceAccounts\$Environment-ServiceAccount.json") {
+        elseif (Test-Path ".\Credentials\ServiceAccounts\$($Environment)-ServiceAccount.json") {
             $Method = 'EncryptedFile'
             Write-Verbose "Auto-detected method: EncryptedFile"
         }
         # Check credential manager
         else {
-            $targetName = "VMTags-$Environment-vCenter"
-            $cmdResult = cmd /c "cmdkey /list:$targetName" 2>$null
+            $targetName = "VMTags-$($Environment)-vCenter"
+            $cmdResult = cmd /c "cmdkey /list:$($targetName)" 2>$null
             if ($LASTEXITCODE -eq 0) {
                 $Method = 'CredentialManager'
                 Write-Verbose "Auto-detected method: CredentialManager"
@@ -138,7 +138,7 @@ function Get-AriaServiceCredentials {
             'CredentialManager' {
                 Write-Verbose "Retrieving credentials from Windows Credential Manager"
 
-                $targetName = "VMTags-$Environment-vCenter"
+                $targetName = "VMTags-$($Environment)-vCenter"
 
                 # Use PowerShell to retrieve stored credential
                 try {
@@ -147,7 +147,7 @@ function Get-AriaServiceCredentials {
                     $cred = [System.Web.Security.Membership]::GeneratePassword(1,0) # Dummy call to load assembly
 
                     # Use cmdkey to list and parse the credential
-                    $cmdResult = cmd /c "cmdkey /list:$targetName" 2>$null
+                    $cmdResult = cmd /c "cmdkey /list:$($targetName)" 2>$null
                     if ($LASTEXITCODE -ne 0) {
                         throw "Credential not found in Credential Manager: $targetName"
                     }
@@ -171,7 +171,7 @@ function Get-AriaServiceCredentials {
             'EncryptedFile' {
                 Write-Verbose "Retrieving credentials from encrypted file"
 
-                $credentialFile = ".\Credentials\ServiceAccounts\$Environment-ServiceAccount.json"
+                $credentialFile = ".\Credentials\ServiceAccounts\$($Environment)-ServiceAccount.json"
 
                 if (-not (Test-Path $credentialFile)) {
                     throw "Encrypted credential file not found: $credentialFile"
@@ -226,7 +226,7 @@ function Test-AriaServiceCredentials {
     )
 
     try {
-        Write-Host "Testing Aria service account credentials for $Environment..." -ForegroundColor Cyan
+        Write-Host "Testing Aria service account credentials for $($Environment)..." -ForegroundColor Cyan
 
         # Get service account credentials
         $credential = Get-AriaServiceCredentials -Environment $Environment
@@ -248,7 +248,7 @@ function Test-AriaServiceCredentials {
         Import-Module VMware.PowerCLI -Force -ErrorAction SilentlyContinue
         Set-PowerCLIConfiguration -InvalidCertificateAction Ignore -Confirm:$false -Scope Session | Out-Null
 
-        Write-Host "Connecting to vCenter: $VCenterServer" -ForegroundColor Yellow
+        Write-Host "Connecting to vCenter: $($VCenterServer)" -ForegroundColor Yellow
         $connection = Connect-VIServer -Server $VCenterServer -Credential $credential -ErrorAction Stop
 
         Write-Host "✓ Successfully authenticated with service account: $($credential.UserName)" -ForegroundColor Green
@@ -256,10 +256,10 @@ function Test-AriaServiceCredentials {
 
         # Test basic permissions
         $vmCount = @(Get-VM -ErrorAction SilentlyContinue).Count
-        Write-Host "✓ Service account can query VMs: $vmCount VMs found" -ForegroundColor Green
+        Write-Host "✓ Service account can query VMs: $($vmCount) VMs found" -ForegroundColor Green
 
         $tagCount = @(Get-Tag -ErrorAction SilentlyContinue).Count
-        Write-Host "✓ Service account can query tags: $tagCount tags found" -ForegroundColor Green
+        Write-Host "✓ Service account can query tags: $($tagCount) tags found" -ForegroundColor Green
 
         Disconnect-VIServer -Server $connection -Confirm:$false -Force
 
