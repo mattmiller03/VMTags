@@ -40,7 +40,7 @@
                 BackupDirectory             =   ".\Backup\DEV"
 
                 # Network share configuration (optional - will fallback to local files if not configured)
-                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource"
+                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
                 EnableNetworkShare          =   $true             # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
@@ -94,7 +94,7 @@
                 BackupDirectory     =       ".\Backup\PROD"
 
                 # Network share configuration (optional - will fallback to local files if not configured)
-                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource"
+                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
                 EnableNetworkShare          =   $true               # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
@@ -147,7 +147,7 @@
                 BackupDirectory         =   ".\Backup\KLEB"
 
                 # Network share configuration (optional - will fallback to local files if not configured)
-                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource"
+                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
                 EnableNetworkShare          =   $true               # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
@@ -196,7 +196,7 @@
                 BackupDirectory         =   ".\Backup\OT"
 
                 # Network share configuration (optional - will fallback to local files if not configured)
-                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource"
+                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
                 EnableNetworkShare          =   $true              # Set to $false for OT environment (security)
                 CacheNetworkFiles           =   $false              # Disable caching for OT environment
@@ -321,7 +321,7 @@
             }
             PROD = @{
                 AllowStoredCredentials = $true
-                AutoStoreCredentials = $false   # Manual approval for prod
+                AutoStoreCredentials = $true   # Manual approval for prod
                 CredentialMaxAgeDays = 14       # Shorter expiry for prod security
                 ValidateCredentials = $true     # Always validate in prod
                 RequireCredentialRotation = $true
@@ -334,8 +334,8 @@
                 ValidateCredentials = $true
             }
             OT = @{
-                AllowStoredCredentials = $false  # Most restrictive for OT environment
-                AutoStoreCredentials = $false
+                AllowStoredCredentials = $true  # Most restrictive for OT environment
+                AutoStoreCredentials = $true
                 CredentialMaxAgeDays = 7
                 ValidateCredentials = $true
                 RequireInteractiveAuth = $true   # Always prompt for OT
