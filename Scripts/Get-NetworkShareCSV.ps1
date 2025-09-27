@@ -59,7 +59,10 @@ param(
     [switch]$ForceRefresh,
 
     [Parameter(Mandatory = $false, HelpMessage = "Return file info instead of data")]
-    [switch]$FileInfoOnly
+    [switch]$FileInfoOnly,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Network share filename mapping")]
+    [hashtable]$NetworkShareMapping = @{}
 )
 
 function Write-NetworkShareLog {
@@ -205,7 +208,14 @@ function Copy-NetworkFileWithCredentials {
 
 # Main execution
 try {
-    $networkFilePath = Join-Path $NetworkPath $FileName
+    # Resolve network filename using mapping if provided
+    $networkFileName = $FileName
+    if ($NetworkShareMapping -and $NetworkShareMapping.ContainsKey($FileName)) {
+        $networkFileName = $NetworkShareMapping[$FileName]
+        Write-NetworkShareLog "Using mapped network filename: '$FileName' -> '$networkFileName'" "INFO"
+    }
+
+    $networkFilePath = Join-Path $NetworkPath $networkFileName
     $localFilePath = Join-Path $LocalFallbackPath $FileName
     $cachedFilePath = Get-CachedFilePath -NetworkPath $NetworkPath -FileName $FileName
 

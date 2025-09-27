@@ -1951,6 +1951,12 @@ try {
                     CacheExpiryHours = $cacheExpiryHours
                 }
 
+                # Add network share mapping if configured
+                if ($networkShareConfig.NetworkShareMapping) {
+                    $scriptParams.NetworkShareMapping = $networkShareConfig.NetworkShareMapping
+                    Write-Log "Using network share file mapping for environment $Environment" "DEBUG"
+                }
+
                 # Add credential if available
                 if ($shareCredential) {
                     $scriptParams.Credential = $shareCredential
@@ -2023,6 +2029,12 @@ try {
                 FileName = $osMappingFileName
                 EnableCaching = $osEnableCaching
                 CacheExpiryHours = $osCacheExpiryHours
+            }
+
+            # Add network share mapping if configured
+            if ($networkShareConfig.NetworkShareMapping) {
+                $osScriptParams.NetworkShareMapping = $networkShareConfig.NetworkShareMapping
+                Write-Log "Using network share file mapping for OS Mapping in environment $Environment" "DEBUG"
             }
 
             # Add credential if available

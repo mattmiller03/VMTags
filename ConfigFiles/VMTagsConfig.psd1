@@ -45,6 +45,15 @@
                 EnableNetworkShare          =   $true             # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
                 CacheExpiryHours           =   4                   # Hours before cache expires
+
+                # Network share file mapping (maps local file names to network share file names)
+                NetworkShareMapping = @{
+                    "AppTagPermissions_DEV.csv" = "AppTagPermissions_DEV.csv"
+                    "OS-Mappings_DEV.csv" = "OS-Mappings_DEV.csv"
+                    # Add alternative mappings if network share uses different naming
+                    # "AppTagPermissions_DEV.csv" = "App-Permissions-DEV.csv"
+                    # "OS-Mappings_DEV.csv" = "OS_Mappings_DEV.csv"
+                }
             }
             
             # DEV-specific settings
@@ -90,6 +99,15 @@
                 EnableNetworkShare          =   $true               # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
                 CacheExpiryHours           =   2                   # Hours before cache expires (shorter for PROD)
+
+                # Network share file mapping (maps local file names to network share file names)
+                NetworkShareMapping = @{
+                    "AppTagPermissions_PROD.csv" = "AppTagPermissions_PROD.csv"
+                    "OS-Mappings_PROD.csv" = "OS-Mappings_PROD.csv"
+                    # Add alternative mappings if network share uses different naming
+                    # "AppTagPermissions_PROD.csv" = "App-Permissions-PROD.csv"
+                    # "OS-Mappings_PROD.csv" = "OS_Mappings_PROD.csv"
+                }
             }
             
             Settings = @{
@@ -129,11 +147,20 @@
                 BackupDirectory         =   ".\Backup\KLEB"
 
                 # Network share configuration (optional - will fallback to local files if not configured)
-                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource\"
+                NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource"
                 NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
                 EnableNetworkShare          =   $true               # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
                 CacheExpiryHours           =   3                   # Hours before cache expires
+
+                # Network share file mapping (maps local file names to network share file names)
+                NetworkShareMapping = @{
+                    "AppTagPermissions_KLE.csv" = "AppTagPermissions_KLE.csv"
+                    "OS-Mappings_KLE.csv" = "OS-Mappings_KLE.csv"
+                    # Add alternative mappings if network share uses different naming
+                    # "AppTagPermissions_KLE.csv" = "App-Permissions-KLEB.csv"
+                    # "OS-Mappings_KLE.csv" = "OS_Mappings_KLEB.csv"
+                }
             }
             
             Settings = @{
@@ -174,6 +201,15 @@
                 EnableNetworkShare          =   $true              # Set to $false for OT environment (security)
                 CacheNetworkFiles           =   $false              # Disable caching for OT environment
                 CacheExpiryHours           =   1                   # Minimal cache time if enabled
+
+                # Network share file mapping (maps local file names to network share file names)
+                NetworkShareMapping = @{
+                    "App-Permissions-OT.csv" = "App-Permissions-OT.csv"
+                    "OS-Mappings-OT.csv" = "OS-Mappings-OT.csv"
+                    # Add alternative mappings if network share uses different naming
+                    # "App-Permissions-OT.csv" = "AppTagPermissions_OT.csv"
+                    # "OS-Mappings-OT.csv" = "OS_Mappings_OT.csv"
+                }
             }
             
             Settings = @{
