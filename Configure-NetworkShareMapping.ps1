@@ -109,29 +109,35 @@ function Find-BestMatch {
         [array]$NetworkFiles
     )
 
-    $localBase = [System.IO.Path]::GetFileNameWithoutExtension($LocalFileName).ToLower()
     $bestMatch = $null
     $bestScore = 0
 
     foreach ($networkFile in $NetworkFiles) {
-        $networkBase = [System.IO.Path]::GetFileNameWithoutExtension($networkFile.Name).ToLower()
-
         # Calculate similarity score
         $score = 0
 
-        # Check for common patterns
-        if ($localBase -match "app.*permission" -and $networkFile.Name.ToLower() -match "app.*permission") { $score += 50 }
-        if ($localBase -match "os.*mapping" -and $networkFile.Name.ToLower() -match "os.*mapping") { $score += 50 }
+        # Check for exact filename match first (highest priority)
+        if ($LocalFileName.ToLower() -eq $networkFile.Name.ToLower()) {
+            $score = 100
+        }
+        else {
+            $localBase = [System.IO.Path]::GetFileNameWithoutExtension($LocalFileName).ToLower()
+            $networkBase = [System.IO.Path]::GetFileNameWithoutExtension($networkFile.Name).ToLower()
 
-        # Check for environment match
-        if ($networkFile.Name.ToLower() -match $Environment.ToLower()) { $score += 30 }
+            # Check for common patterns
+            if ($localBase -match "app.*permission" -and $networkFile.Name.ToLower() -match "app.*permission") { $score += 50 }
+            if ($localBase -match "os.*mapping" -and $networkFile.Name.ToLower() -match "os.*mapping") { $score += 50 }
 
-        # Check for similar keywords
-        $localWords = $localBase -split "[-_]"
-        $networkWords = $networkBase -split "[-_]"
+            # Check for environment match
+            if ($networkFile.Name.ToLower() -match $Environment.ToLower()) { $score += 30 }
 
-        foreach ($localWord in $localWords) {
-            if ($networkWords -contains $localWord) { $score += 10 }
+            # Check for similar keywords
+            $localWords = $localBase -split "[-_]"
+            $networkWords = $networkBase -split "[-_]"
+
+            foreach ($localWord in $localWords) {
+                if ($networkWords -contains $localWord) { $score += 10 }
+            }
         }
 
         if ($score > $bestScore) {
@@ -157,7 +163,11 @@ function Show-MappingSuggestions {
     foreach ($localFile in $LocalFiles) {
         $match = Find-BestMatch -LocalFileName $localFile -NetworkFiles $NetworkFiles
 
-        if ($match.File -and $match.Score -gt 20) {
+        if ($match.File -and $match.Score -eq 100) {
+            Write-ConfigLog "Local: '$localFile' -> Network: '$($match.File.Name)' (EXACT MATCH - no mapping needed)" "SUCCESS"
+            # Don't add exact matches to mappings since no mapping is needed
+        }
+        elseif ($match.File -and $match.Score -gt 20) {
             Write-ConfigLog "Local: '$localFile' -> Network: '$($match.File.Name)' (Score: $($match.Score))" "SUCCESS"
             $mappings[$localFile] = $match.File.Name
         } else {
@@ -172,14 +182,21 @@ function Show-MappingSuggestions {
     }
 
     Write-ConfigLog "" "INFO"
-    Write-ConfigLog "Suggested configuration for $Environment environment:" "INFO"
-    Write-ConfigLog "NetworkShareMapping = @{" "INFO"
 
-    foreach ($mapping in $mappings.GetEnumerator()) {
-        Write-ConfigLog "    `"$($mapping.Key)`" = `"$($mapping.Value)`"" "INFO"
+    if ($mappings.Count -eq 0) {
+        Write-ConfigLog "✓ All files have exact matches - no NetworkShareMapping configuration needed!" "SUCCESS"
+        Write-ConfigLog "The network share files have identical names to the expected local files." "SUCCESS"
+        Write-ConfigLog "Your current configuration should work without any NetworkShareMapping." "SUCCESS"
+    } else {
+        Write-ConfigLog "Suggested configuration for $Environment environment:" "INFO"
+        Write-ConfigLog "NetworkShareMapping = @{" "INFO"
+
+        foreach ($mapping in $mappings.GetEnumerator()) {
+            Write-ConfigLog "    `"$($mapping.Key)`" = `"$($mapping.Value)`"" "INFO"
+        }
+
+        Write-ConfigLog "}" "INFO"
     }
-
-    Write-ConfigLog "}" "INFO"
 
     return $mappings
 }
