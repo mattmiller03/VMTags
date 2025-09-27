@@ -53,3 +53,4 @@ desktop.ini
 /.vs/slnx.sqlite-journal
 *.csv
 ConfigFiles/VMTagsConfig.psd1
+ConfigFiles/VMTagsConfig.corrupt
