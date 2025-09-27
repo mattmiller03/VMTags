@@ -41,10 +41,11 @@
 
                 # Network share configuration (optional - will fallback to local files if not configured)
                 NetworkSharePath            =   "\\orgaze\DCC\VirtualTeam\Scripts\vRA_PSH\Datasource"
-                NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager
+                NetworkShareCredentialName  =   "VMTags-FileServer"  # Name in Windows Credential Manager (fallback if UseVCenterCredentials is false)
                 EnableNetworkShare          =   $true             # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
                 CacheExpiryHours           =   4                   # Hours before cache expires
+                UseVCenterCredentials       =   $true               # Use vCenter service account for network share (recommended: true)
 
                 # Network share file mapping (maps local file names to network share file names)
                 NetworkShareMapping = @{
@@ -99,6 +100,7 @@
                 EnableNetworkShare          =   $true               # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
                 CacheExpiryHours           =   2                   # Hours before cache expires (shorter for PROD)
+                UseVCenterCredentials       =   $true               # Use vCenter service account for network share (default: true)
 
                 # Network share file mapping (maps local file names to network share file names)
                 NetworkShareMapping = @{
@@ -152,6 +154,7 @@
                 EnableNetworkShare          =   $true               # Set to $true to enable network share
                 CacheNetworkFiles           =   $true               # Cache network files locally
                 CacheExpiryHours           =   3                   # Hours before cache expires
+                UseVCenterCredentials       =   $true               # Use vCenter service account for network share (default: true)
 
                 # Network share file mapping (maps local file names to network share file names)
                 NetworkShareMapping = @{
@@ -201,6 +204,7 @@
                 EnableNetworkShare          =   $true              # Set to $false for OT environment (security)
                 CacheNetworkFiles           =   $false              # Disable caching for OT environment
                 CacheExpiryHours           =   1                   # Minimal cache time if enabled
+                UseVCenterCredentials       =   $true               # Use vCenter service account for network share (default: true)
 
                 # Network share file mapping (maps local file names to network share file names)
                 NetworkShareMapping = @{

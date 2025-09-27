@@ -1865,14 +1865,27 @@ try {
             if (Test-Path $networkShareScriptPath) {
                 # Don't dot-source, we'll call it directly
 
-                # Get credentials from Windows Credential Manager if specified
+                # Try to use existing vCenter credentials first (most common scenario)
                 $shareCredential = $null
-                if ($networkShareConfig.NetworkShareCredentialName) {
+                $useVCenterCredentials = if ($networkShareConfig.UseVCenterCredentials -ne $null) { $networkShareConfig.UseVCenterCredentials } else { $true }
+
+                if ($Credential -and $useVCenterCredentials) {
+                    Write-Log "Using vCenter service account credentials for network share access" "INFO"
+                    $shareCredential = $Credential
+                }
+                elseif (-not $useVCenterCredentials) {
+                    Write-Log "UseVCenterCredentials is disabled - will use dedicated network share credentials" "INFO"
+                }
+                # Check Windows Credential Manager for dedicated network share credentials
+                if (-not $shareCredential -and $networkShareConfig.NetworkShareCredentialName) {
                     try {
                         # Load credential manager script
                         $credScriptPath = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "Get-StoredCredential.ps1"
                         if (Test-Path $credScriptPath) {
                             $shareCredential = & $credScriptPath -Target $networkShareConfig.NetworkShareCredentialName -ErrorAction SilentlyContinue
+                            if ($shareCredential) {
+                                Write-Log "Retrieved dedicated network share credentials from credential manager" "INFO"
+                            }
                         }
                     }
                     catch {
@@ -1880,9 +1893,9 @@ try {
                     }
                 }
 
-                # If no stored credentials found, prompt for credentials
+                # If no credentials available, test access and potentially prompt
                 if (-not $shareCredential) {
-                    Write-Log "No stored credentials found for network share access" "WARN"
+                    Write-Log "No credentials available for network share access - testing anonymous access" "INFO"
 
                     # Check if we can access the share without credentials first
                     try {
