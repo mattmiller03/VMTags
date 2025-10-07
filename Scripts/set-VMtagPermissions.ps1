@@ -1771,11 +1771,15 @@ function Find-VMsWithoutExplicitPermissions {
 function Grant-InventoryVisibility {
     <#
     .SYNOPSIS
-        Grants Read-Only permissions on inventory containers to allow users to navigate vCenter structure
+        Grants Read-Only permissions on inventory containers to allow OS admins to navigate vCenter structure
     .DESCRIPTION
         This function grants non-propagating Read-Only permissions on datacenters, clusters, folders,
-        and resource pools to security groups that have VM permissions. This allows users to see and
+        and resource pools to OS admin security groups. This allows OS administrators to see and
         navigate the inventory structure without having actual permissions on all objects.
+
+        This function should ONLY be called with OS admin groups (from OS-Mappings CSV).
+        App admin groups (from AppPermissions CSV) should NOT receive inventory visibility -
+        they should only see their assigned VMs and tagged containers.
 
         System objects that are automatically skipped:
         - System folders: vm, host, network, datastore, Datacenters (blue folders)
@@ -1783,7 +1787,7 @@ function Grant-InventoryVisibility {
         - vCLS resource pools: vCLS* (vSphere Cluster Services)
         - Hidden objects: .* (system managed)
     .PARAMETER SecurityGroups
-        Array of security group principals (domain\groupname format) to grant visibility to
+        Array of OS admin security group principals (domain\groupname format) to grant visibility to
     .PARAMETER SkipDatacenters
         Skip granting permissions on datacenters (if they already have visibility)
     #>
@@ -2979,26 +2983,18 @@ try {
         Write-Log "=== Granting Inventory Visibility to Security Groups ===" "INFO"
 
         try {
-            # Collect all unique security groups from both App Permissions and OS Mappings
-            $allSecurityGroups = @()
-
-            # From App Permissions CSV
-            $appSecurityGroups = $appPermissionData | ForEach-Object {
-                "$($_.SecurityGroupDomain)\$($_.SecurityGroupName)"
-            } | Select-Object -Unique
-
-            # From OS Mappings CSV
+            # Collect unique security groups from OS Mappings CSV ONLY
+            # OS admins need inventory visibility to navigate and manage VMs
+            # App admins should only see their specific VMs and tagged containers
             $osSecurityGroups = $osMappingData | ForEach-Object {
                 "$($_.SecurityGroupDomain)\$($_.SecurityGroupName)"
             } | Select-Object -Unique
 
-            # Combine and deduplicate
-            $allSecurityGroups = ($appSecurityGroups + $osSecurityGroups) | Select-Object -Unique
+            Write-Log "Found $($osSecurityGroups.Count) OS admin security groups to grant inventory visibility" "INFO"
+            Write-Log "Note: Only OS admin groups receive inventory visibility. App admin groups only see their assigned VMs/containers." "INFO"
 
-            Write-Log "Found $($allSecurityGroups.Count) unique security groups to grant inventory visibility" "INFO"
-
-            # Grant inventory visibility
-            $visibilityResult = Grant-InventoryVisibility -SecurityGroups $allSecurityGroups
+            # Grant inventory visibility to OS admins only
+            $visibilityResult = Grant-InventoryVisibility -SecurityGroups $osSecurityGroups
 
             # Track results
             $script:ExecutionSummary.InventoryVisibility = $visibilityResult

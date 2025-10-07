@@ -27,14 +27,15 @@ Two major enhancements have been added to address user visibility issues and tag
 
 **New Function**: `Grant-InventoryVisibility`
 
-This function grants non-propagating **Read-Only** permissions on all inventory containers (Datacenters, Clusters, Folders, Resource Pools) to security groups that have VM permissions.
+This function grants non-propagating **Read-Only** permissions on all inventory containers (Datacenters, Clusters, Folders, Resource Pools) to **OS admin security groups only**.
 
 **Key Characteristics**:
 - Grants Read-Only role (built-in vCenter role)
 - Permissions are **non-propagating** (`Propagate:$false`)
 - Users can navigate the entire inventory tree
 - Users only have actual role permissions on their specific VMs
-- Automatically collects all security groups from CSV files
+- **Only applies to OS admin groups** (from OS Mappings CSV)
+- **App admin groups are excluded** - they only see their assigned VMs and tagged containers
 
 **Usage**:
 ```powershell
@@ -52,8 +53,9 @@ This function grants non-propagating **Read-Only** permissions on all inventory 
 ```
 
 **What It Does**:
-1. Collects all unique security groups from AppPermissions and OS Mapping CSVs
-2. For each security group, grants Read-Only permission on:
+1. Collects unique security groups **from OS Mappings CSV ONLY** (OS admins)
+   - **App admin groups are NOT included** - they only see their assigned VMs/containers
+2. For each OS admin security group, grants Read-Only permission on:
    - All Datacenters
    - All Clusters
    - All VM Folders (excluding system folders)
@@ -68,6 +70,10 @@ This function grants non-propagating **Read-Only** permissions on all inventory 
 
 **Example Results**:
 ```
+=== Granting Inventory Visibility to Security Groups ===
+Found 3 OS admin security groups to grant inventory visibility
+Note: Only OS admin groups receive inventory visibility. App admin groups only see their assigned VMs/containers.
+
 === Inventory Visibility Results ===
 Datacenter Read-Only Permissions: 4
 Cluster Read-Only Permissions: 12
@@ -76,6 +82,10 @@ Resource Pool Read-Only Permissions: 48
 Visibility Grants Skipped (already exist): 23
 Visibility Grant Errors: 0
 ```
+
+**Who Gets Inventory Visibility**:
+- ✅ **OS Admin Groups** (from OS-Mappings CSV) - Full inventory navigation
+- ❌ **App Admin Groups** (from AppPermissions CSV) - Only their assigned VMs/containers
 
 ### Feature 2: Container Permissions
 
@@ -184,14 +194,21 @@ User Experience: Users see their VMs, and permissions are visible on tagged cont
 
 ### With Both Features Enabled (Recommended)
 ```
-Datacenter (WebServerAdmins: Read-Only, no propagation)
-├── Folder: Production [Tagged: WebTeam] (WebServerAdmins: Read-Only + Support-Admin-WebTeam: Full permissions, no propagation)
+Datacenter (WindowsAdmins: Read-Only, no propagation)  [OS Admin group gets visibility]
+├── Folder: Production [Tagged: WebTeam] (Support-Admin-WebTeam: Full permissions, no propagation)
 │   └── VM: web01 (Support-Admin-WebTeam: Full permissions)
-└── ResourcePool: WebServers [Tagged: WebTeam] (WebServerAdmins: Read-Only + Support-Admin-WebTeam: Full permissions, no propagation)
+└── ResourcePool: WebServers [Tagged: WebTeam] (Support-Admin-WebTeam: Full permissions, no propagation)
     └── VM: web02 (Support-Admin-WebTeam: Full permissions)
 
-User Experience: Users can navigate entire tree, see organizational structure, and have full permissions on their assigned containers and VMs
+User Experience:
+- OS Admins: Can navigate entire tree, see all organizational structure
+- App Admins: See their assigned containers and VMs only, have full permissions on those objects
 ```
+
+**Important**: Inventory visibility is granted to **OS admin groups ONLY** (from OS-Mappings CSV), not app admin groups (from AppPermissions CSV). This ensures:
+- OS administrators can see and navigate the entire inventory for their administrative duties
+- Application administrators only see the VMs and containers they manage
+- Security principle of least privilege is maintained
 
 ## Recommended Configuration
 
