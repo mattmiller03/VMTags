@@ -1562,7 +1562,16 @@ function Start-ParallelVCenterExecution {
         (not typical for Enhanced Linked Mode).
     #>
     [CmdletBinding()]
-    param()
+    param(
+        [Parameter(Mandatory = $false)]
+        [bool]$EnableInventoryVisibility = $false,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$EnableContainerPermissions = $true,
+
+        [Parameter(Mandatory = $false)]
+        [bool]$ForceReprocess = $false
+    )
 
     try {
         Write-Log "Starting parallel vCenter execution..." -Level Info
@@ -1587,7 +1596,7 @@ function Start-ParallelVCenterExecution {
 
             # Create a script block for parallel execution
             $scriptBlock = {
-                param($Server, $AppCsvPath, $OsCsvPath, $Environment, $CredentialPath, $MainScriptPath, $LogPath)
+                param($Server, $AppCsvPath, $OsCsvPath, $Environment, $CredentialPath, $MainScriptPath, $LogPath, $EnableInventoryVisibility, $EnableContainerPermissions, $ForceReprocess)
 
                 try {
                     # Build arguments for main script - Fix parameter name
@@ -1602,6 +1611,19 @@ function Start-ParallelVCenterExecution {
                     if ($LogPath) {
                         $args += '-LogDirectory'  # Correct parameter name for main script
                         $args += "`"$LogPath`""
+                    }
+
+                    # Add optional switches
+                    if ($EnableInventoryVisibility) {
+                        $args += '-EnableInventoryVisibility'
+                    }
+
+                    if ($EnableContainerPermissions) {
+                        $args += '-EnableContainerPermissions'
+                    }
+
+                    if ($ForceReprocess) {
+                        $args += '-ForceReprocess'
                     }
 
                     # Determine PowerShell executable path
@@ -1665,7 +1687,10 @@ function Start-ParallelVCenterExecution {
                 $script:Config.CurrentEnvironment,
                 $script:CredentialPath,
                 $script:Config.DefaultPaths.MainScriptPath,
-                $script:Config.DataPaths.LogDirectory
+                $script:Config.DataPaths.LogDirectory,
+                $EnableInventoryVisibility,
+                $EnableContainerPermissions,
+                $ForceReprocess
             )
 
             $jobs += @{
@@ -2301,7 +2326,7 @@ function Start-MainScript {
 
             if ($script:Config.MultiVCenter.EnableParallelVCenterProcessing) {
                 Write-Log "Parallel vCenter processing is ENABLED - will execute against multiple vCenters" -Level Info
-                return Start-ParallelVCenterExecution
+                return Start-ParallelVCenterExecution -EnableInventoryVisibility:$EnableInventoryVisibility -EnableContainerPermissions:$EnableContainerPermissions -ForceReprocess:$ForceReprocess
             } else {
                 Write-Log "Using primary vCenter for execution: $($vCenterServer)" -Level Info
                 Write-Log "Note: Enhanced Linked Mode shares inventory across all vCenters via SSO" -Level Info
