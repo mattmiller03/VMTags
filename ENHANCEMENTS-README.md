@@ -56,10 +56,15 @@ This function grants non-propagating **Read-Only** permissions on all inventory 
 2. For each security group, grants Read-Only permission on:
    - All Datacenters
    - All Clusters
-   - All VM Folders
-   - All Resource Pools
+   - All VM Folders (excluding system folders)
+   - All Resource Pools (excluding system pools)
 3. Uses non-propagating permissions so actual VM permissions remain unchanged
 4. Skips containers that already have permissions for the security group
+5. Automatically excludes system objects:
+   - System folders: `vm`, `host`, `network`, `datastore`, `Datacenters` (blue folders)
+   - Root resource pool: `Resources` (cluster default)
+   - vCLS resource pools: `vCLS*` (vSphere Cluster Services)
+   - Hidden objects: `.*` (system managed)
 
 **Example Results**:
 ```
@@ -239,6 +244,22 @@ Found X unique security groups to grant inventory visibility
 ```
 
 **Check 3**: Users may need to log out and log back in to vCenter for permissions to take effect
+
+### Errors About System Objects (Expected)
+
+**These warnings are normal and can be ignored**:
+```powershell
+Skipping system folder 'vm' - system folders don't require permissions
+Skipping root 'Resources' resource pool - system object doesn't require permissions
+Skipping vCLS resource pool 'vCLS-xxxx' - system managed
+```
+
+**Why**: System objects like the blue "vm" folder, root "Resources" pool, and vCLS (vSphere Cluster Services) objects are special vCenter infrastructure components that:
+- Don't support or need permission assignments
+- Are automatically visible to all users
+- Are managed by vCenter itself
+
+**Action**: No action required - these messages are informational only
 
 ### Container Permissions Not Showing
 

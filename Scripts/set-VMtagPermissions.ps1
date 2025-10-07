@@ -1776,6 +1776,12 @@ function Grant-InventoryVisibility {
         This function grants non-propagating Read-Only permissions on datacenters, clusters, folders,
         and resource pools to security groups that have VM permissions. This allows users to see and
         navigate the inventory structure without having actual permissions on all objects.
+
+        System objects that are automatically skipped:
+        - System folders: vm, host, network, datastore, Datacenters (blue folders)
+        - Root resource pool: Resources (cluster default)
+        - vCLS resource pools: vCLS* (vSphere Cluster Services)
+        - Hidden objects: .* (system managed)
     .PARAMETER SecurityGroups
         Array of security group principals (domain\groupname format) to grant visibility to
     .PARAMETER SkipDatacenters
@@ -1788,6 +1794,7 @@ function Grant-InventoryVisibility {
 
     Write-Log "=== Granting Inventory Visibility ===" "INFO"
     Write-Log "Security groups to process: $($SecurityGroups.Count)" "INFO"
+    Write-Log "System objects will be automatically skipped (blue folders, Resources pool, vCLS objects)" "DEBUG"
 
     $results = @{
         DatacenterPermissions = 0
@@ -1852,10 +1859,23 @@ function Grant-InventoryVisibility {
                     }
                 }
 
-                # Grant on VM Folders (non-blue folders)
+                # Grant on VM Folders (exclude system folders)
                 $folders = Get-Folder -Type VM -ErrorAction SilentlyContinue
                 foreach ($folder in $folders) {
                     try {
+                        # Skip system folders (blue folders) - these are part of datacenter structure
+                        $systemFolders = @('vm', 'host', 'network', 'datastore', 'Datacenters')
+                        if ($folder.Name -in $systemFolders) {
+                            Write-Log "Skipping system folder '$($folder.Name)' - system folders don't require permissions" "DEBUG"
+                            continue
+                        }
+
+                        # Skip hidden folders (these are typically system managed)
+                        if ($folder.Name -match '^\.') {
+                            Write-Log "Skipping hidden folder '$($folder.Name)'" "DEBUG"
+                            continue
+                        }
+
                         $existingPerm = Get-VIPermission -Entity $folder -Principal $securityGroup -ErrorAction SilentlyContinue
                         if (-not $existingPerm) {
                             New-VIPermission -Entity $folder -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
@@ -1871,10 +1891,28 @@ function Grant-InventoryVisibility {
                     }
                 }
 
-                # Grant on Resource Pools
+                # Grant on Resource Pools (exclude system resource pools)
                 $resourcePools = Get-ResourcePool -ErrorAction SilentlyContinue
                 foreach ($resourcePool in $resourcePools) {
                     try {
+                        # Skip root "Resources" resource pool - this is a special system object
+                        if ($resourcePool.Name -eq "Resources") {
+                            Write-Log "Skipping root 'Resources' resource pool - system object doesn't require permissions" "DEBUG"
+                            continue
+                        }
+
+                        # Skip vCLS resource pools (vSphere Cluster Services)
+                        if ($resourcePool.Name -match '^vCLS') {
+                            Write-Log "Skipping vCLS resource pool '$($resourcePool.Name)' - system managed" "DEBUG"
+                            continue
+                        }
+
+                        # Skip hidden resource pools
+                        if ($resourcePool.Name -match '^\.') {
+                            Write-Log "Skipping hidden resource pool '$($resourcePool.Name)'" "DEBUG"
+                            continue
+                        }
+
                         $existingPerm = Get-VIPermission -Entity $resourcePool -Principal $securityGroup -ErrorAction SilentlyContinue
                         if (-not $existingPerm) {
                             New-VIPermission -Entity $resourcePool -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
