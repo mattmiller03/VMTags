@@ -30,12 +30,14 @@ Two major enhancements have been added to address user visibility issues and tag
 This function grants non-propagating **Read-Only** permissions on all inventory containers (Datacenters, Clusters, Folders, Resource Pools) to **OS admin security groups only**.
 
 **Key Characteristics**:
-- Grants Read-Only role (built-in vCenter role)
-- Permissions are **non-propagating** (`Propagate:$false`)
+- Grants Read-Only role (built-in vCenter role) **at vCenter root level**
+- Permission **propagates** to all child objects (`Propagate:$true`)
+- **Single operation per OS admin group** - extremely efficient
 - Users can navigate the entire inventory tree
 - Users only have actual role permissions on their specific VMs
 - **Only applies to OS admin groups** (from OS Mappings CSV)
 - **App admin groups are excluded** - they only see their assigned VMs and tagged containers
+- No need to handle system objects - propagation handles everything automatically
 
 **Usage**:
 ```powershell
@@ -55,36 +57,45 @@ This function grants non-propagating **Read-Only** permissions on all inventory 
 **What It Does**:
 1. Collects unique security groups **from OS Mappings CSV ONLY** (OS admins)
    - **App admin groups are NOT included** - they only see their assigned VMs/containers
-2. For each OS admin security group, grants Read-Only permission on:
+2. For each OS admin security group, grants **single Read-Only permission at vCenter root** with propagation
+   - **Single operation per group** - extremely fast and efficient
+   - Automatically applies to ALL child objects in the inventory hierarchy
+   - No need to iterate through hundreds/thousands of containers
+3. Propagation automatically covers:
    - All Datacenters
    - All Clusters
-   - All VM Folders (excluding system folders)
-   - All Resource Pools (excluding system pools)
-3. Uses non-propagating permissions so actual VM permissions remain unchanged
-4. Skips containers that already have permissions for the security group
-5. Automatically excludes system objects:
-   - System folders: `vm`, `host`, `network`, `datastore`, `Datacenters` (blue folders)
-   - Root resource pool: `Resources` (cluster default)
-   - vCLS resource pools: `vCLS*` (vSphere Cluster Services)
-   - Hidden objects: `.*` (system managed)
+   - All VM Folders
+   - All Resource Pools
+   - All VMs
+4. Skips groups that already have Read-Only at root level
 
 **Example Results**:
 ```
-=== Granting Inventory Visibility to Security Groups ===
-Found 3 OS admin security groups to grant inventory visibility
-Note: Only OS admin groups receive inventory visibility. App admin groups only see their assigned VMs/containers.
+=== Granting Inventory Visibility at vCenter Root ===
+Security groups to process: 3
+Method: Single Read-Only permission at root with propagation (efficient approach)
+vCenter Server: vcenter.domain.com
+Granting inventory visibility to: DLA-Prod\Windows-Admins
+Successfully granted Read-Only permission at root to DLA-Prod\Windows-Admins (propagates to all objects)
+Granting inventory visibility to: DLA-Prod\Linux-Admins
+Successfully granted Read-Only permission at root to DLA-Prod\Linux-Admins (propagates to all objects)
+Granting inventory visibility to: DLA-Prod\Unix-Admins
+Successfully granted Read-Only permission at root to DLA-Prod\Unix-Admins (propagates to all objects)
 
 === Inventory Visibility Results ===
-Datacenter Read-Only Permissions: 4
-Cluster Read-Only Permissions: 12
-Folder Read-Only Permissions: 156
-Resource Pool Read-Only Permissions: 48
-Visibility Grants Skipped (already exist): 23
+Root-Level Permissions Granted: 3
+Visibility Grants Skipped (already exist): 0
 Visibility Grant Errors: 0
+Note: Root permissions propagate to all child objects (datacenters, clusters, folders, resource pools, VMs)
 ```
 
+**Efficiency Benefits**:
+- **Before**: Hundreds/thousands of individual permission grants (slow, error-prone)
+- **After**: One permission grant per OS admin group (fast, clean, simple)
+- **Example**: 3 OS groups × 1 permission each = 3 operations (instead of 3 groups × 200+ objects = 600+ operations)
+
 **Who Gets Inventory Visibility**:
-- ✅ **OS Admin Groups** (from OS-Mappings CSV) - Full inventory navigation
+- ✅ **OS Admin Groups** (from OS-Mappings CSV) - Full inventory navigation via root-level Read-Only
 - ❌ **App Admin Groups** (from AppPermissions CSV) - Only their assigned VMs/containers
 
 ### Feature 2: Container Permissions
@@ -262,21 +273,27 @@ Found X unique security groups to grant inventory visibility
 
 **Check 3**: Users may need to log out and log back in to vCenter for permissions to take effect
 
-### Errors About System Objects (Expected)
+### No Errors About System Objects!
 
-**These warnings are normal and can be ignored**:
-```powershell
-Skipping system folder 'vm' - system folders don't require permissions
-Skipping root 'Resources' resource pool - system object doesn't require permissions
-Skipping vCLS resource pool 'vCLS-xxxx' - system managed
-```
+**Previous Approach** (individual container grants):
+- Generated errors/warnings for system folders and resource pools
+- Required complex filtering logic
+- Slow due to iterating through hundreds of objects
 
-**Why**: System objects like the blue "vm" folder, root "Resources" pool, and vCLS (vSphere Cluster Services) objects are special vCenter infrastructure components that:
-- Don't support or need permission assignments
-- Are automatically visible to all users
-- Are managed by vCenter itself
+**Current Approach** (root-level grant with propagation):
+- No system object errors - propagation handles everything automatically
+- Fast - single permission grant per group
+- Simple - no special handling needed
 
-**Action**: No action required - these messages are informational only
+**You should NOT see**:
+- ❌ Warnings about system folders
+- ❌ Warnings about Resources pool
+- ❌ Warnings about vCLS objects
+
+**You SHOULD see**:
+- ✅ Clean execution with 3-5 permission grants total
+- ✅ "Root-Level Permissions Granted: X" message
+- ✅ "Note: Root permissions propagate to all child objects"
 
 ### Container Permissions Not Showing
 

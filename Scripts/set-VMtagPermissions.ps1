@@ -1771,45 +1771,47 @@ function Find-VMsWithoutExplicitPermissions {
 function Grant-InventoryVisibility {
     <#
     .SYNOPSIS
-        Grants Read-Only permissions on inventory containers to allow OS admins to navigate vCenter structure
+        Grants Read-Only permissions at vCenter root to allow OS admins to navigate entire inventory
     .DESCRIPTION
-        This function grants non-propagating Read-Only permissions on datacenters, clusters, folders,
-        and resource pools to OS admin security groups. This allows OS administrators to see and
-        navigate the inventory structure without having actual permissions on all objects.
+        This function grants Read-Only permissions at the vCenter Server root level with propagation
+        enabled. This automatically provides read access to all inventory objects (datacenters, clusters,
+        folders, resource pools, VMs) throughout the entire vCenter hierarchy.
+
+        This is the most efficient approach - a single permission grant per security group instead of
+        hundreds/thousands of individual grants on every container object.
 
         This function should ONLY be called with OS admin groups (from OS-Mappings CSV).
         App admin groups (from AppPermissions CSV) should NOT receive inventory visibility -
         they should only see their assigned VMs and tagged containers.
-
-        System objects that are automatically skipped:
-        - System folders: vm, host, network, datastore, Datacenters (blue folders)
-        - Root resource pool: Resources (cluster default)
-        - vCLS resource pools: vCLS* (vSphere Cluster Services)
-        - Hidden objects: .* (system managed)
     .PARAMETER SecurityGroups
         Array of OS admin security group principals (domain\groupname format) to grant visibility to
-    .PARAMETER SkipDatacenters
-        Skip granting permissions on datacenters (if they already have visibility)
     #>
     param(
-        [string[]]$SecurityGroups,
-        [switch]$SkipDatacenters
+        [string[]]$SecurityGroups
     )
 
-    Write-Log "=== Granting Inventory Visibility ===" "INFO"
+    Write-Log "=== Granting Inventory Visibility at vCenter Root ===" "INFO"
     Write-Log "Security groups to process: $($SecurityGroups.Count)" "INFO"
-    Write-Log "System objects will be automatically skipped (blue folders, Resources pool, vCLS objects)" "DEBUG"
+    Write-Log "Method: Single Read-Only permission at root with propagation (efficient approach)" "INFO"
 
     $results = @{
-        DatacenterPermissions = 0
-        ClusterPermissions = 0
-        FolderPermissions = 0
-        ResourcePoolPermissions = 0
+        RootPermissionsGranted = 0
         Skipped = 0
         Errors = 0
     }
 
     try {
+        # Get the vCenter root object (the connected vCenter Server)
+        $vCenterRoot = $global:DefaultVIServer
+
+        if (-not $vCenterRoot) {
+            Write-Log "No vCenter connection found. Cannot grant inventory visibility." "ERROR"
+            $results.Errors++
+            return $results
+        }
+
+        Write-Log "vCenter Server: $($vCenterRoot.Name)" "INFO"
+
         # Get Read-Only role (this is a built-in vCenter role)
         $readOnlyRole = Get-VIRole -Name "ReadOnly" -ErrorAction Stop
 
@@ -1820,131 +1822,42 @@ function Grant-InventoryVisibility {
 
         # Process each security group
         foreach ($securityGroup in $SecurityGroups) {
-            Write-Log "Processing inventory visibility for: $securityGroup" "INFO"
+            Write-Log "Granting inventory visibility to: $securityGroup" "INFO"
 
             try {
-                # Grant on Datacenters (unless skipped)
-                if (-not $SkipDatacenters) {
-                    $datacenters = Get-Datacenter -ErrorAction SilentlyContinue
-                    foreach ($datacenter in $datacenters) {
-                        try {
-                            $existingPerm = Get-VIPermission -Entity $datacenter -Principal $securityGroup -ErrorAction SilentlyContinue
-                            if (-not $existingPerm) {
-                                New-VIPermission -Entity $datacenter -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
-                                Write-Log "Granted Read-Only on Datacenter '$($datacenter.Name)' to $securityGroup" "DEBUG"
-                                $results.DatacenterPermissions++
-                            } else {
-                                $results.Skipped++
-                            }
-                        }
-                        catch {
-                            Write-Log "Failed to grant visibility on Datacenter '$($datacenter.Name)' to $securityGroup`: $_" "WARN"
-                            $results.Errors++
-                        }
-                    }
+                # Check if permission already exists at root level
+                $existingPerm = Get-VIPermission -Entity $vCenterRoot -Principal $securityGroup -ErrorAction SilentlyContinue |
+                                Where-Object { $_.Role -eq "ReadOnly" }
+
+                if ($existingPerm) {
+                    Write-Log "Read-Only permission already exists at root for $securityGroup - SKIPPING" "DEBUG"
+                    $results.Skipped++
+                    continue
                 }
 
-                # Grant on Clusters
-                $clusters = Get-Cluster -ErrorAction SilentlyContinue
-                foreach ($cluster in $clusters) {
-                    try {
-                        $existingPerm = Get-VIPermission -Entity $cluster -Principal $securityGroup -ErrorAction SilentlyContinue
-                        if (-not $existingPerm) {
-                            New-VIPermission -Entity $cluster -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
-                            Write-Log "Granted Read-Only on Cluster '$($cluster.Name)' to $securityGroup" "DEBUG"
-                            $results.ClusterPermissions++
-                        } else {
-                            $results.Skipped++
-                        }
-                    }
-                    catch {
-                        Write-Log "Failed to grant visibility on Cluster '$($cluster.Name)' to $securityGroup`: $_" "WARN"
-                        $results.Errors++
-                    }
-                }
+                # Grant Read-Only permission at vCenter root with propagation
+                # This automatically applies to ALL child objects in the inventory
+                Write-Log "Granting Read-Only at vCenter root with propagation to $securityGroup" "INFO"
+                $newPermission = New-VIPermission -Entity $vCenterRoot -Principal $securityGroup -Role $readOnlyRole -Propagate:$true -ErrorAction Stop
 
-                # Grant on VM Folders (exclude system folders)
-                $folders = Get-Folder -Type VM -ErrorAction SilentlyContinue
-                foreach ($folder in $folders) {
-                    try {
-                        # Skip system folders (blue folders) - these are part of datacenter structure
-                        $systemFolders = @('vm', 'host', 'network', 'datastore', 'Datacenters')
-                        if ($folder.Name -in $systemFolders) {
-                            Write-Log "Skipping system folder '$($folder.Name)' - system folders don't require permissions" "DEBUG"
-                            continue
-                        }
-
-                        # Skip hidden folders (these are typically system managed)
-                        if ($folder.Name -match '^\.') {
-                            Write-Log "Skipping hidden folder '$($folder.Name)'" "DEBUG"
-                            continue
-                        }
-
-                        $existingPerm = Get-VIPermission -Entity $folder -Principal $securityGroup -ErrorAction SilentlyContinue
-                        if (-not $existingPerm) {
-                            New-VIPermission -Entity $folder -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
-                            Write-Log "Granted Read-Only on Folder '$($folder.Name)' to $securityGroup" "DEBUG"
-                            $results.FolderPermissions++
-                        } else {
-                            $results.Skipped++
-                        }
-                    }
-                    catch {
-                        Write-Log "Failed to grant visibility on Folder '$($folder.Name)' to $securityGroup`: $_" "WARN"
-                        $results.Errors++
-                    }
-                }
-
-                # Grant on Resource Pools (exclude system resource pools)
-                $resourcePools = Get-ResourcePool -ErrorAction SilentlyContinue
-                foreach ($resourcePool in $resourcePools) {
-                    try {
-                        # Skip root "Resources" resource pool - this is a special system object
-                        if ($resourcePool.Name -eq "Resources") {
-                            Write-Log "Skipping root 'Resources' resource pool - system object doesn't require permissions" "DEBUG"
-                            continue
-                        }
-
-                        # Skip vCLS resource pools (vSphere Cluster Services)
-                        if ($resourcePool.Name -match '^vCLS') {
-                            Write-Log "Skipping vCLS resource pool '$($resourcePool.Name)' - system managed" "DEBUG"
-                            continue
-                        }
-
-                        # Skip hidden resource pools
-                        if ($resourcePool.Name -match '^\.') {
-                            Write-Log "Skipping hidden resource pool '$($resourcePool.Name)'" "DEBUG"
-                            continue
-                        }
-
-                        $existingPerm = Get-VIPermission -Entity $resourcePool -Principal $securityGroup -ErrorAction SilentlyContinue
-                        if (-not $existingPerm) {
-                            New-VIPermission -Entity $resourcePool -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
-                            Write-Log "Granted Read-Only on Resource Pool '$($resourcePool.Name)' to $securityGroup" "DEBUG"
-                            $results.ResourcePoolPermissions++
-                        } else {
-                            $results.Skipped++
-                        }
-                    }
-                    catch {
-                        Write-Log "Failed to grant visibility on Resource Pool '$($resourcePool.Name)' to $securityGroup`: $_" "WARN"
-                        $results.Errors++
-                    }
-                }
+                Write-Log "Successfully granted Read-Only permission at root to $securityGroup (propagates to all objects)" "INFO"
+                $results.RootPermissionsGranted++
             }
             catch {
-                Write-Log "Error processing inventory visibility for $securityGroup`: $_" "ERROR"
+                $errorMessage = $_.Exception.Message
+                Write-Log "Failed to grant inventory visibility to $securityGroup`: $errorMessage" "ERROR"
                 $results.Errors++
             }
         }
 
         Write-Log "Inventory Visibility Summary:" "INFO"
-        Write-Log "  Datacenter Permissions: $($results.DatacenterPermissions)" "INFO"
-        Write-Log "  Cluster Permissions: $($results.ClusterPermissions)" "INFO"
-        Write-Log "  Folder Permissions: $($results.FolderPermissions)" "INFO"
-        Write-Log "  Resource Pool Permissions: $($results.ResourcePoolPermissions)" "INFO"
+        Write-Log "  Root-Level Permissions Granted: $($results.RootPermissionsGranted)" "INFO"
         Write-Log "  Skipped (already exist): $($results.Skipped)" "INFO"
         Write-Log "  Errors: $($results.Errors)" "INFO"
+
+        if ($results.RootPermissionsGranted -gt 0) {
+            Write-Log "Note: Root-level permissions automatically propagate to all datacenters, clusters, folders, resource pools, and VMs" "INFO"
+        }
     }
     catch {
         Write-Log "Critical error in Grant-InventoryVisibility: $_" "ERROR"
@@ -3074,12 +2987,12 @@ try {
     # Inventory Visibility Summary
     if ($EnableInventoryVisibility -and $script:ExecutionSummary.InventoryVisibility) {
         Write-Log "=== Inventory Visibility Results ===" "INFO"
-        Write-Log "Datacenter Read-Only Permissions: $($script:ExecutionSummary.InventoryVisibility.DatacenterPermissions)" "INFO"
-        Write-Log "Cluster Read-Only Permissions: $($script:ExecutionSummary.InventoryVisibility.ClusterPermissions)" "INFO"
-        Write-Log "Folder Read-Only Permissions: $($script:ExecutionSummary.InventoryVisibility.FolderPermissions)" "INFO"
-        Write-Log "Resource Pool Read-Only Permissions: $($script:ExecutionSummary.InventoryVisibility.ResourcePoolPermissions)" "INFO"
+        Write-Log "Root-Level Permissions Granted: $($script:ExecutionSummary.InventoryVisibility.RootPermissionsGranted)" "INFO"
         Write-Log "Visibility Grants Skipped (already exist): $($script:ExecutionSummary.InventoryVisibility.Skipped)" "INFO"
         Write-Log "Visibility Grant Errors: $($script:ExecutionSummary.InventoryVisibility.Errors)" "INFO"
+        if ($script:ExecutionSummary.InventoryVisibility.RootPermissionsGranted -gt 0) {
+            Write-Log "Note: Root permissions propagate to all child objects (datacenters, clusters, folders, resource pools, VMs)" "INFO"
+        }
     }
 
     Write-Log "=== Error Summary ===" "INFO"
