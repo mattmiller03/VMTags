@@ -2908,8 +2908,36 @@ function Write-ExecutionSummary {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)]
-        [hashtable]$Result
+        $Result  # Accept any type, we'll handle conversion
     )
+
+    # Handle case where result might be an array (pipeline pollution from direct execution)
+    # If it's an array, take the last element which should be the hashtable
+    if ($Result -is [Array]) {
+        Write-Log "Result is an array with $($Result.Count) elements, extracting hashtable..." -Level Debug
+        # Find the hashtable in the array (usually the last element)
+        $hashtableResult = $Result | Where-Object { $_ -is [hashtable] } | Select-Object -Last 1
+
+        if ($hashtableResult) {
+            Write-Log "Found hashtable in array at position, using it" -Level Debug
+            $Result = $hashtableResult
+        } else {
+            # Fallback: use last element if no hashtable found
+            Write-Log "No hashtable found in array, using last element" -Level Warning
+            $Result = $Result[-1]
+        }
+    }
+
+    # Ensure we have a hashtable now
+    if ($Result -isnot [hashtable]) {
+        Write-Log "Result is not a hashtable after conversion (Type: $($Result.GetType().Name))" -Level Error
+        # Create a basic hashtable from whatever we have
+        $Result = @{
+            ExitCode = 1
+            ExecutionTime = "UNKNOWN"
+            ErrorMessage = "Invalid result type: $($Result.GetType().Name)"
+        }
+    }
     
     Write-Host "`n" -NoNewline
     Write-Host "=== EXECUTION SUMMARY ===" -ForegroundColor Cyan
