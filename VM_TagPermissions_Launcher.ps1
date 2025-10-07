@@ -2507,7 +2507,9 @@ function Start-MainScript {
 
             try {
                 Write-Log "Calling main script with direct execution..." -Level Info
-                & $script:Config.DefaultPaths.MainScriptPath @scriptParams
+                # Execute script and suppress output to prevent it from being added to return value
+                # The script's output goes to console/logs, we only care about exit code
+                $null = & $script:Config.DefaultPaths.MainScriptPath @scriptParams
                 $exitCode = $LASTEXITCODE
                 if ($null -eq $exitCode) { $exitCode = 0 }
             }
@@ -2522,10 +2524,13 @@ function Start-MainScript {
             Write-Log "Direct execution completed with exit code: $exitCode" -Level Info
             Write-Log "Execution time: $($stopwatch.Elapsed.ToString())" -Level Info
 
-            return @{
+            # Return hashtable only - ensure no array conversion
+            $executionResult = @{
                 ExitCode = $exitCode
                 ExecutionTime = $stopwatch.Elapsed.ToString()
             }
+
+            return $executionResult
         }
 
         # ===== POWERSHELL 7 LAUNCH PATH (PowerShell 5.x) =====
