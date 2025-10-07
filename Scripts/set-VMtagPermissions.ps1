@@ -121,7 +121,13 @@ Param(
     [switch]$vSphereClientMode,
 
     [Parameter(Mandatory = $false, HelpMessage = "Force reprocessing of VMs even if they were already processed today")]
-    [switch]$ForceReprocess
+    [switch]$ForceReprocess,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Enable inventory visibility by granting Read-Only on containers to all security groups")]
+    [switch]$EnableInventoryVisibility,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Assign permissions on tagged folders and resource pools (not just VMs)")]
+    [switch]$EnableContainerPermissions = $true
 )
 
 #region A) Credential Loading and Configs
@@ -236,6 +242,7 @@ $script:outputLog = @()
 $script:logFolder = Join-Path (Split-Path $MyInvocation.MyCommand.Path) "Logs"
 $script:ssoConnected = $false
 $script:ScriptDebugEnabled = $EnableScriptDebug.IsPresent
+$script:EnableContainerPermissions = $EnableContainerPermissions.IsPresent
 
 $EnvironmentCategoryConfig = @{
     'DEV'  = @{ App = 'vCenter-DEV-App-team'; Function = 'vCenter-DEV-Function'; OS = 'vCenter-DEV-OS' };
@@ -941,6 +948,34 @@ function Process-FolderBasedPermissions {
                     Write-Log "  Tag #$($tagIndex)`: '$($debugTag.Tag.Name)' (Category: '$($debugTag.Tag.Category.Name)')" "DEBUG"
                 }
 
+                # ENHANCEMENT: Assign permissions on the folder itself for each tagged permission
+                if ($script:EnableContainerPermissions) {
+                    Write-Log "Folder '$($folder.Name)': Assigning permissions on the folder container itself" "INFO"
+                    foreach ($folderTagAssignment in $folderTags) {
+                        $tagName = $folderTagAssignment.Tag.Name
+
+                        # Find permission mappings for this tag
+                        $permissionRows = @($AppPermissionData | Where-Object {
+                            $_.TagCategory -ieq $AppCategoryName -and $_.TagName -ieq $tagName
+                        })
+
+                        foreach ($permissionRow in $permissionRows) {
+                            $principal = "$($permissionRow.SecurityGroupDomain)\$($permissionRow.SecurityGroupName)"
+
+                            # Validate security group exists
+                            if (Test-SsoGroupExistsSimple -Domain $permissionRow.SecurityGroupDomain -GroupName $permissionRow.SecurityGroupName) {
+                                # Assign permission on the container itself (non-propagating)
+                                $containerResult = Assign-ContainerPermission -Container $folder -Principal $principal -RoleName $permissionRow.RoleName -Propagate $false
+                                if ($containerResult.Action -eq "Created") {
+                                    Write-Log "Folder '$($folder.Name)': Assigned $($permissionRow.RoleName) permission to $principal on container" "INFO"
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Write-Log "Folder '$($folder.Name)': Container permissions disabled (use -EnableContainerPermissions)" "DEBUG"
+                }
+
                 # Get all VMs in this folder (recursively)
                 $vmsInFolder = Get-VM -Location $folder -ErrorAction SilentlyContinue |
                                Where-Object Name -notmatch '^(vCLS|VLC|stCtlVM)'
@@ -1054,6 +1089,34 @@ function Process-FolderBasedPermissions {
                 foreach ($debugTag in $resourcePoolTags) {
                     $rpTagIndex++
                     Write-Log "  Tag #$($rpTagIndex)`: '$($debugTag.Tag.Name)' (Category: '$($debugTag.Tag.Category.Name)')" "DEBUG"
+                }
+
+                # ENHANCEMENT: Assign permissions on the resource pool itself for each tagged permission
+                if ($script:EnableContainerPermissions) {
+                    Write-Log "Resource Pool '$($resourcePool.Name)': Assigning permissions on the resource pool container itself" "INFO"
+                    foreach ($resourcePoolTagAssignment in $resourcePoolTags) {
+                        $tagName = $resourcePoolTagAssignment.Tag.Name
+
+                        # Find permission mappings for this tag
+                        $permissionRows = @($AppPermissionData | Where-Object {
+                            $_.TagCategory -ieq $AppCategoryName -and $_.TagName -ieq $tagName
+                        })
+
+                        foreach ($permissionRow in $permissionRows) {
+                            $principal = "$($permissionRow.SecurityGroupDomain)\$($permissionRow.SecurityGroupName)"
+
+                            # Validate security group exists
+                            if (Test-SsoGroupExistsSimple -Domain $permissionRow.SecurityGroupDomain -GroupName $permissionRow.SecurityGroupName) {
+                                # Assign permission on the container itself (non-propagating)
+                                $containerResult = Assign-ContainerPermission -Container $resourcePool -Principal $principal -RoleName $permissionRow.RoleName -Propagate $false
+                                if ($containerResult.Action -eq "Created") {
+                                    Write-Log "Resource Pool '$($resourcePool.Name)': Assigned $($permissionRow.RoleName) permission to $principal on container" "INFO"
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Write-Log "Resource Pool '$($resourcePool.Name)': Container permissions disabled (use -EnableContainerPermissions)" "DEBUG"
                 }
 
                 # Get all VMs in this resource pool
@@ -1705,13 +1768,240 @@ function Find-VMsWithoutExplicitPermissions {
     }
 }
 
+function Grant-InventoryVisibility {
+    <#
+    .SYNOPSIS
+        Grants Read-Only permissions on inventory containers to allow users to navigate vCenter structure
+    .DESCRIPTION
+        This function grants non-propagating Read-Only permissions on datacenters, clusters, folders,
+        and resource pools to security groups that have VM permissions. This allows users to see and
+        navigate the inventory structure without having actual permissions on all objects.
+    .PARAMETER SecurityGroups
+        Array of security group principals (domain\groupname format) to grant visibility to
+    .PARAMETER SkipDatacenters
+        Skip granting permissions on datacenters (if they already have visibility)
+    #>
+    param(
+        [string[]]$SecurityGroups,
+        [switch]$SkipDatacenters
+    )
+
+    Write-Log "=== Granting Inventory Visibility ===" "INFO"
+    Write-Log "Security groups to process: $($SecurityGroups.Count)" "INFO"
+
+    $results = @{
+        DatacenterPermissions = 0
+        ClusterPermissions = 0
+        FolderPermissions = 0
+        ResourcePoolPermissions = 0
+        Skipped = 0
+        Errors = 0
+    }
+
+    try {
+        # Get Read-Only role (this is a built-in vCenter role)
+        $readOnlyRole = Get-VIRole -Name "ReadOnly" -ErrorAction Stop
+
+        if (-not $readOnlyRole) {
+            Write-Log "Read-Only role not found in vCenter. Skipping inventory visibility grants." "WARN"
+            return $results
+        }
+
+        # Process each security group
+        foreach ($securityGroup in $SecurityGroups) {
+            Write-Log "Processing inventory visibility for: $securityGroup" "INFO"
+
+            try {
+                # Grant on Datacenters (unless skipped)
+                if (-not $SkipDatacenters) {
+                    $datacenters = Get-Datacenter -ErrorAction SilentlyContinue
+                    foreach ($datacenter in $datacenters) {
+                        try {
+                            $existingPerm = Get-VIPermission -Entity $datacenter -Principal $securityGroup -ErrorAction SilentlyContinue
+                            if (-not $existingPerm) {
+                                New-VIPermission -Entity $datacenter -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
+                                Write-Log "Granted Read-Only on Datacenter '$($datacenter.Name)' to $securityGroup" "DEBUG"
+                                $results.DatacenterPermissions++
+                            } else {
+                                $results.Skipped++
+                            }
+                        }
+                        catch {
+                            Write-Log "Failed to grant visibility on Datacenter '$($datacenter.Name)' to $securityGroup`: $_" "WARN"
+                            $results.Errors++
+                        }
+                    }
+                }
+
+                # Grant on Clusters
+                $clusters = Get-Cluster -ErrorAction SilentlyContinue
+                foreach ($cluster in $clusters) {
+                    try {
+                        $existingPerm = Get-VIPermission -Entity $cluster -Principal $securityGroup -ErrorAction SilentlyContinue
+                        if (-not $existingPerm) {
+                            New-VIPermission -Entity $cluster -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
+                            Write-Log "Granted Read-Only on Cluster '$($cluster.Name)' to $securityGroup" "DEBUG"
+                            $results.ClusterPermissions++
+                        } else {
+                            $results.Skipped++
+                        }
+                    }
+                    catch {
+                        Write-Log "Failed to grant visibility on Cluster '$($cluster.Name)' to $securityGroup`: $_" "WARN"
+                        $results.Errors++
+                    }
+                }
+
+                # Grant on VM Folders (non-blue folders)
+                $folders = Get-Folder -Type VM -ErrorAction SilentlyContinue
+                foreach ($folder in $folders) {
+                    try {
+                        $existingPerm = Get-VIPermission -Entity $folder -Principal $securityGroup -ErrorAction SilentlyContinue
+                        if (-not $existingPerm) {
+                            New-VIPermission -Entity $folder -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
+                            Write-Log "Granted Read-Only on Folder '$($folder.Name)' to $securityGroup" "DEBUG"
+                            $results.FolderPermissions++
+                        } else {
+                            $results.Skipped++
+                        }
+                    }
+                    catch {
+                        Write-Log "Failed to grant visibility on Folder '$($folder.Name)' to $securityGroup`: $_" "WARN"
+                        $results.Errors++
+                    }
+                }
+
+                # Grant on Resource Pools
+                $resourcePools = Get-ResourcePool -ErrorAction SilentlyContinue
+                foreach ($resourcePool in $resourcePools) {
+                    try {
+                        $existingPerm = Get-VIPermission -Entity $resourcePool -Principal $securityGroup -ErrorAction SilentlyContinue
+                        if (-not $existingPerm) {
+                            New-VIPermission -Entity $resourcePool -Principal $securityGroup -Role $readOnlyRole -Propagate:$false -ErrorAction Stop | Out-Null
+                            Write-Log "Granted Read-Only on Resource Pool '$($resourcePool.Name)' to $securityGroup" "DEBUG"
+                            $results.ResourcePoolPermissions++
+                        } else {
+                            $results.Skipped++
+                        }
+                    }
+                    catch {
+                        Write-Log "Failed to grant visibility on Resource Pool '$($resourcePool.Name)' to $securityGroup`: $_" "WARN"
+                        $results.Errors++
+                    }
+                }
+            }
+            catch {
+                Write-Log "Error processing inventory visibility for $securityGroup`: $_" "ERROR"
+                $results.Errors++
+            }
+        }
+
+        Write-Log "Inventory Visibility Summary:" "INFO"
+        Write-Log "  Datacenter Permissions: $($results.DatacenterPermissions)" "INFO"
+        Write-Log "  Cluster Permissions: $($results.ClusterPermissions)" "INFO"
+        Write-Log "  Folder Permissions: $($results.FolderPermissions)" "INFO"
+        Write-Log "  Resource Pool Permissions: $($results.ResourcePoolPermissions)" "INFO"
+        Write-Log "  Skipped (already exist): $($results.Skipped)" "INFO"
+        Write-Log "  Errors: $($results.Errors)" "INFO"
+    }
+    catch {
+        Write-Log "Critical error in Grant-InventoryVisibility: $_" "ERROR"
+        $results.Errors++
+    }
+
+    return $results
+}
+
+function Assign-ContainerPermission {
+    <#
+    .SYNOPSIS
+        Assigns permissions on a container (folder or resource pool) for a security group
+    .DESCRIPTION
+        This function assigns the specified role to a security group on a container object.
+        This ensures that when tags are assigned to containers, the permissions are also
+        assigned on the container itself, not just on child VMs.
+    .PARAMETER Container
+        The container object (folder or resource pool)
+    .PARAMETER Principal
+        The security group principal (domain\groupname format)
+    .PARAMETER RoleName
+        The name of the role to assign
+    .PARAMETER Propagate
+        Whether to propagate permissions to children (default: $false)
+    #>
+    param(
+        [psobject]$Container,
+        [string]$Principal,
+        [string]$RoleName,
+        [bool]$Propagate = $false
+    )
+
+    Write-Log "Checking container permission: Container='$($Container.Name)', Principal='$($Principal)', Role='$($RoleName)'" "DEBUG"
+
+    try {
+        # Check if role exists
+        $role = Get-VIRole -Name $RoleName -ErrorAction SilentlyContinue
+
+        if (-not $role) {
+            # Try to create role if it doesn't exist
+            $role = Clone-RoleFromSupportAdminTemplate -NewRoleName $RoleName
+            if (-not $role) {
+                Write-Log "Could not find or create role '$($RoleName)' for container '$($Container.Name)'" "WARN"
+                return @{
+                    Action = "Failed"
+                    Reason = "Role not found"
+                    Principal = $Principal
+                    Role = $RoleName
+                }
+            }
+        }
+
+        # Check for existing permission
+        $existingPermission = Get-VIPermission -Entity $Container -ErrorAction SilentlyContinue | Where-Object {
+            $_.Principal -eq $Principal -and $_.Role -eq $RoleName
+        }
+
+        if ($existingPermission) {
+            Write-Log "Permission already exists on container '$($Container.Name)' for '$($Principal)' with role '$($RoleName)' - SKIPPING" "DEBUG"
+            return @{
+                Action = "Skipped"
+                Reason = "Permission already exists"
+                Principal = $Principal
+                Role = $RoleName
+            }
+        }
+
+        # Assign the permission
+        Write-Log "Assigning permission on container '$($Container.Name)': Principal='$($Principal)', Role='$($RoleName)', Propagate=$($Propagate)" "INFO"
+        $newPermission = New-VIPermission -Entity $Container -Principal $Principal -Role $role -Propagate:$Propagate -ErrorAction Stop
+
+        return @{
+            Action = "Created"
+            Principal = $Principal
+            Role = $RoleName
+            Propagate = $Propagate
+            PermissionObject = $newPermission
+        }
+    }
+    catch {
+        $errorMessage = $_.Exception.Message
+        Write-Log "Failed to assign permission on container '$($Container.Name)' for '$($Principal)': $errorMessage" "ERROR"
+        return @{
+            Action = "Failed"
+            Principal = $Principal
+            Role = $RoleName
+            Error = $errorMessage
+        }
+    }
+}
+
 function Track-PermissionAssignment {
     param($Result, $VM, $Source)
-    
+
     if (-not $script:PermissionResults) {
         $script:PermissionResults = @()
     }
-    
+
     $script:PermissionResults += [PSCustomObject]@{
         VMName = $VM.Name
         PowerState = $VM.PowerState
@@ -2645,7 +2935,49 @@ try {
         
         Write-Log "OS tag processing for inherited VMs completed: $($inheritedVMsOSTagged) tagged, $($inheritedVMsOSSkipped) skipped" "INFO"
     }
-    
+
+    # --- Grant Inventory Visibility (Optional) ---
+    if ($EnableInventoryVisibility) {
+        Write-Log "=== Granting Inventory Visibility to Security Groups ===" "INFO"
+
+        try {
+            # Collect all unique security groups from both App Permissions and OS Mappings
+            $allSecurityGroups = @()
+
+            # From App Permissions CSV
+            $appSecurityGroups = $appPermissionData | ForEach-Object {
+                "$($_.SecurityGroupDomain)\$($_.SecurityGroupName)"
+            } | Select-Object -Unique
+
+            # From OS Mappings CSV
+            $osSecurityGroups = $osMappingData | ForEach-Object {
+                "$($_.SecurityGroupDomain)\$($_.SecurityGroupName)"
+            } | Select-Object -Unique
+
+            # Combine and deduplicate
+            $allSecurityGroups = ($appSecurityGroups + $osSecurityGroups) | Select-Object -Unique
+
+            Write-Log "Found $($allSecurityGroups.Count) unique security groups to grant inventory visibility" "INFO"
+
+            # Grant inventory visibility
+            $visibilityResult = Grant-InventoryVisibility -SecurityGroups $allSecurityGroups
+
+            # Track results
+            $script:ExecutionSummary.InventoryVisibility = $visibilityResult
+
+            Write-Log "Inventory visibility grants completed" "INFO"
+        }
+        catch {
+            Write-Log "Error granting inventory visibility: $_" "ERROR"
+            $script:ExecutionSummary.ErrorsEncountered++
+        }
+    } else {
+        Write-Log "Inventory visibility feature is DISABLED (use -EnableInventoryVisibility to enable)" "INFO"
+        $script:ExecutionSummary.InventoryVisibility = @{
+            Enabled = $false
+        }
+    }
+
     # --- Generate Final Reports and Summary ---
     Write-Log "=== Generating Final Reports and Summary ===" "INFO"
     
@@ -2704,6 +3036,18 @@ try {
     Write-Log "VMs with Explicit Permissions: $($permissionAnalysis.WithExplicit.Count)" "INFO"
     Write-Log "VMs with Only Inherited Permissions: $($permissionAnalysis.OnlyInherited.Count)" "INFO"
     Write-Log "VMs with No Permissions: $($permissionAnalysis.WithoutPermissions.Count)" "INFO"
+
+    # Inventory Visibility Summary
+    if ($EnableInventoryVisibility -and $script:ExecutionSummary.InventoryVisibility) {
+        Write-Log "=== Inventory Visibility Results ===" "INFO"
+        Write-Log "Datacenter Read-Only Permissions: $($script:ExecutionSummary.InventoryVisibility.DatacenterPermissions)" "INFO"
+        Write-Log "Cluster Read-Only Permissions: $($script:ExecutionSummary.InventoryVisibility.ClusterPermissions)" "INFO"
+        Write-Log "Folder Read-Only Permissions: $($script:ExecutionSummary.InventoryVisibility.FolderPermissions)" "INFO"
+        Write-Log "Resource Pool Read-Only Permissions: $($script:ExecutionSummary.InventoryVisibility.ResourcePoolPermissions)" "INFO"
+        Write-Log "Visibility Grants Skipped (already exist): $($script:ExecutionSummary.InventoryVisibility.Skipped)" "INFO"
+        Write-Log "Visibility Grant Errors: $($script:ExecutionSummary.InventoryVisibility.Errors)" "INFO"
+    }
+
     Write-Log "=== Error Summary ===" "INFO"
     Write-Log "Total Errors Encountered: $($script:ExecutionSummary.ErrorsEncountered)" "INFO"
     

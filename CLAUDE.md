@@ -47,6 +47,42 @@ VMTags-v2.0 is a high-performance PowerShell automation system for managing vCen
 .\VM_TagPermissions_Launcher.ps1 -ClearAllCredentials
 ```
 
+### Network Share Management
+
+```powershell
+# Configure network share file mappings
+.\Configure-NetworkShareMapping.ps1 -Environment PROD -ListOnly
+.\Configure-NetworkShareMapping.ps1 -Environment DEV -AutoConfigure
+
+# Set up network share credentials
+.\Set-NetworkShareCredentials.ps1 -SharePath "\\server\share" -TestAccess
+
+# Get Aria Operations service credentials
+.\Get-AriaServiceCredentials.ps1 -Environment PROD
+
+# Set Aria Operations service credentials
+.\Set-AriaServiceCredentials.ps1 -Environment PROD
+```
+
+### Utility Scripts
+
+```powershell
+# Clear processed VM tracking
+.\Clear-ProcessedVMs.ps1 -Environment DEV
+
+# Debug folder tag assignments
+.\Debug-FolderTags.ps1 -Environment DEV -FolderPath "Production/WebServers"
+
+# Test OS tag permissions
+.\Test-OSTagPermissions.ps1 -Environment DEV
+
+# Test folder-based permissions
+.\Test-FolderBasedPermissions.ps1 -Environment DEV
+
+# Invoke from vSphere Client
+.\Invoke-VMTagsFromvSphere.ps1 -VMName "server01" -Environment PROD
+```
+
 ## Architecture
 
 ### Core Components
@@ -64,6 +100,25 @@ VMTags-v2.0 is a high-performance PowerShell automation system for managing vCen
 - `Test-HierarchicalInheritance.ps1`: Hierarchical tag inheritance validation and testing
 - `Test-AutomationMode.ps1`: Automation mode functionality testing for CI/CD integration
 - `Test-LauncherArgs.ps1`: Launcher parameter validation and configuration testing
+- `Test-OSTagPermissions.ps1`: OS-based tag and permission testing
+- `Test-FolderBasedPermissions.ps1`: Folder hierarchy permission testing
+- `Test-NetworkShare.ps1`: Network share connectivity and CSV retrieval testing
+
+**Network Share Integration:**
+- `Scripts/Get-NetworkShareCSV.ps1`: Centralized CSV retrieval with caching and fallback mechanisms
+- `Configure-NetworkShareMapping.ps1`: Network share file mapping configuration utility
+- `Set-NetworkShareCredentials.ps1`: Network share authentication setup
+- `Debug-NetworkShareConfig.ps1`: Network share configuration troubleshooting
+
+**Aria Operations Integration:**
+- `Get-AriaServiceCredentials.ps1`: Retrieve Aria Operations service account credentials
+- `Set-AriaServiceCredentials.ps1`: Configure Aria Operations service account credentials
+- `Aria-VMTags-Wrapper.ps1`: Aria Operations integration wrapper for enterprise monitoring
+
+**Utility Scripts:**
+- `Clear-ProcessedVMs.ps1`: Reset daily VM processing tracking for force reprocessing
+- `Debug-FolderTags.ps1`: Debug folder hierarchy tag assignments
+- `Invoke-VMTagsFromvSphere.ps1`: vSphere Client integration for single-VM processing
 
 ### Parallel Processing Architecture
 
@@ -100,13 +155,15 @@ VMTags-v2.0 is a high-performance PowerShell automation system for managing vCen
 ### Data Processing Flow
 
 1. **Environment Detection**: Launcher loads environment-specific configuration from VMTagsConfig.psd1
-2. **Multi-vCenter Support**: Detects Enhanced Linked Mode configuration and establishes appropriate connections
-3. **Credential Management**: Retrieves stored credentials or prompts for new ones based on environment policy
-4. **Hierarchical Inheritance**: (Optional) Processes tag inheritance from folders and resource pools
-5. **Parallel Processing**: Distributes VMs across threads using selected batch strategy
-6. **Tag Assignment**: Applies OS tags based on guest OS pattern matching from CSV configurations
-7. **Permission Management**: Assigns application team permissions based on CSV mappings
-8. **Reporting**: Generates comprehensive CSV reports with performance metrics and error analysis
+2. **Network Share Discovery**: (Optional) Retrieves CSV files from centralized network shares with caching
+3. **Multi-vCenter Support**: Detects Enhanced Linked Mode configuration and establishes appropriate connections
+4. **Credential Management**: Retrieves stored credentials or prompts for new ones based on environment policy
+5. **Daily Deduplication**: Checks processed VM tracking to avoid duplicate processing (can be bypassed with -ForceReprocess)
+6. **Hierarchical Inheritance**: (Optional) Processes tag inheritance from folders and resource pools
+7. **Parallel Processing**: Distributes VMs across threads using selected batch strategy
+8. **Tag Assignment**: Applies OS tags based on guest OS pattern matching from CSV configurations
+9. **Permission Management**: Assigns application team permissions based on CSV mappings
+10. **Reporting**: Generates comprehensive CSV reports with performance metrics and error analysis
 
 ### CSV Configuration Architecture
 
@@ -114,12 +171,21 @@ VMTags-v2.0 is a high-performance PowerShell automation system for managing vCen
 - Maps application teams to specific VM tags, roles, and security groups
 - Supports complex role-based access control (RBAC) scenarios
 - Environment-specific tag categories (vCenter-DEV-App-team, vCenter-PROD-App-team, etc.)
+- Required columns: TagCategory, TagName, RoleName, SecurityGroupDomain, SecurityGroupName
 
 **OS Mapping CSV Structure:**
 - Guest OS pattern matching with regex support
 - Automatic OS tag assignment based on detected operating system
 - Role and security group mapping per OS type
 - Special handling for domain controllers (ReadOnly permissions)
+- Required columns: GuestOSPattern, TargetTagName, RoleName, SecurityGroupDomain, SecurityGroupName
+
+**Network Share CSV Management:**
+- Centralized CSV files can be stored on network shares for organization-wide consistency
+- Automatic file retrieval with local caching (configurable expiry, default 4 hours)
+- Fallback to local files when network shares are unavailable
+- Supports file name mapping when network share names differ from local conventions
+- Authentication via vCenter service account (recommended) or separate network credentials
 
 ## Development Guidelines
 
@@ -158,19 +224,35 @@ Settings = @{
 
 ```
 VMTags-v2.0/
-├── VM_TagPermissions_Launcher.ps1     # Enhanced launcher with credential management
-├── Scripts/set-VMtagPermissions.ps1   # Main processing engine with parallel capabilities
-├── Aria-VMTags-Wrapper.ps1           # Aria Operations integration wrapper
-├── Test-MultiVCenter.ps1             # Multi-vCenter Enhanced Linked Mode testing
-├── Test-HierarchicalInheritance.ps1  # Hierarchical tag inheritance testing
-├── Test-AutomationMode.ps1           # Automation mode testing for CI/CD
-├── Test-LauncherArgs.ps1             # Launcher parameter validation testing
-├── ConfigFiles/VMTagsConfig.psd1     # Centralized configuration management
-├── Data/[ENV]/                       # Environment-specific CSV files (git-ignored)
-├── Logs/                             # Execution logs (git-ignored)
-├── Reports/                          # Generated CSV reports (git-ignored)
-├── Credentials/                      # Stored authentication files (git-ignored)
-└── Backup/                          # Configuration backups (git-ignored)
+├── VM_TagPermissions_Launcher.ps1         # Enhanced launcher with credential management
+├── Scripts/
+│   ├── set-VMtagPermissions.ps1          # Main processing engine with parallel capabilities
+│   ├── Get-NetworkShareCSV.ps1           # Network share CSV retrieval with caching
+│   └── Get-StoredCredential.ps1          # Credential storage and retrieval helper
+├── Aria-VMTags-Wrapper.ps1               # Aria Operations integration wrapper
+├── Get-AriaServiceCredentials.ps1        # Aria service account credential retrieval
+├── Set-AriaServiceCredentials.ps1        # Aria service account credential configuration
+├── Configure-NetworkShareMapping.ps1     # Network share file mapping configuration
+├── Set-NetworkShareCredentials.ps1       # Network share authentication setup
+├── Debug-NetworkShareConfig.ps1          # Network share configuration troubleshooting
+├── Clear-ProcessedVMs.ps1                # Reset daily VM processing tracking
+├── Debug-FolderTags.ps1                  # Folder hierarchy tag debugging
+├── Invoke-VMTagsFromvSphere.ps1          # vSphere Client integration
+├── Test-MultiVCenter.ps1                 # Multi-vCenter Enhanced Linked Mode testing
+├── Test-HierarchicalInheritance.ps1      # Hierarchical tag inheritance testing
+├── Test-AutomationMode.ps1               # Automation mode testing for CI/CD
+├── Test-LauncherArgs.ps1                 # Launcher parameter validation testing
+├── Test-OSTagPermissions.ps1             # OS-based tag and permission testing
+├── Test-FolderBasedPermissions.ps1       # Folder hierarchy permission testing
+├── Test-NetworkShare.ps1                 # Network share connectivity testing
+├── ConfigFiles/
+│   └── VMTagsConfig.psd1                 # Centralized configuration management
+├── Data/[ENV]/                           # Environment-specific CSV files (git-ignored)
+├── Logs/                                 # Execution logs (git-ignored)
+├── Reports/                              # Generated CSV reports (git-ignored)
+├── Credentials/                          # Stored authentication files (git-ignored)
+├── Backup/                               # Configuration backups (git-ignored)
+└── Temp/                                 # Temporary files and cached network CSVs (git-ignored)
 ```
 
 ## Environment-Specific Behavior
@@ -226,16 +308,25 @@ VMTags-v2.0/
 ## Integration Notes
 
 ### Aria Operations Integration
-The system includes native Aria Operations integration through `Aria-VMTags-Wrapper.ps1` for enterprise monitoring and alerting. Logs are formatted in Aria-compatible JSON structure for seamless SIEM integration.
+The system includes native Aria Operations integration through `Aria-VMTags-Wrapper.ps1` for enterprise monitoring and alerting. Logs are formatted in Aria-compatible JSON structure for seamless SIEM integration. Service account credentials can be managed via `Get-AriaServiceCredentials.ps1` and `Set-AriaServiceCredentials.ps1`.
 
 ### Enhanced Linked Mode Support
-Multi-vCenter environments with Enhanced Linked Mode are fully supported through configuration in `VMTagsConfig.psd1`. The system can connect to multiple vCenters in an Enhanced Linked Mode configuration while properly handling shared SSO domains and preventing duplicate VM processing.
+Multi-vCenter environments with Enhanced Linked Mode are fully supported through configuration in `VMTagsConfig.psd1`. The system can connect to multiple vCenters in an Enhanced Linked Mode configuration while properly handling shared SSO domains and preventing duplicate VM processing. Configure using the `vCenterServers` array in environment settings instead of single `vCenterServer` parameter.
 
 ### Hierarchical Tag Inheritance
-Automatic tag inheritance from folder and resource pool hierarchies allows for simplified tag management at scale. VMs automatically inherit tags from their parent containers based on configurable category rules, reducing manual tag assignment overhead.
+Automatic tag inheritance from folder and resource pool hierarchies allows for simplified tag management at scale. VMs automatically inherit tags from their parent containers based on configurable category rules, reducing manual tag assignment overhead. Enable with `-EnableHierarchicalInheritance` flag and specify categories with `-InheritanceCategories`.
+
+### Network Share CSV Management
+Centralized CSV files can be managed on network shares for organization-wide consistency. The system automatically retrieves files with local caching (default 4-hour expiry) and falls back to local files when network shares are unavailable. Configure via `DataPaths.NetworkSharePath` and related settings in `VMTagsConfig.psd1`. Authentication uses vCenter service account by default (`UseVCenterCredentials = $true`) or Windows Credential Manager (`NetworkShareCredentialName`).
+
+### vSphere Client Integration
+Single-VM processing is supported through `Invoke-VMTagsFromvSphere.ps1` for integration with vSphere Client workflows. Enables right-click menu actions or custom vSphere Client extensions to process individual VMs without running full batch operations.
+
+### Daily Deduplication Tracking
+The system tracks processed VMs daily to prevent duplicate processing within the same day. This improves performance and reduces vCenter API load. Use `-ForceReprocess` flag to bypass tracking when testing or when immediate reprocessing is required. Clear tracking manually with `Clear-ProcessedVMs.ps1`.
 
 ### CI/CD and Automation Integration
-Automation mode support enables seamless integration with CI/CD pipelines, Aria Operations, and other automated execution contexts by bypassing interactive prompts and providing structured output for consumption by external systems.
+Automation mode support enables seamless integration with CI/CD pipelines, Aria Operations, and other automated execution contexts by bypassing interactive prompts and providing structured output for consumption by external systems. Enable with `-AutomationMode` flag.
 
 ### PowerCLI Requirements
 - VMware PowerCLI 13.0+ required
