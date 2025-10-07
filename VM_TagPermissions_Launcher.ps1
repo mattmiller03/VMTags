@@ -163,9 +163,15 @@
 .NOTES
     Name: VM_TagPermissions_Launcher_v2.ps1
     Author: [Your Name]
-    Version: 2.1.0
+    Version: 2.2.0
     Requires: PowerShell 5.1 or higher, VMware PowerCLI
-    
+
+    POWERSHELL VERSION DETECTION:
+    - Automatically detects current PowerShell version
+    - PowerShell 7+: Executes main script directly (no new session)
+    - PowerShell 5.x: Launches PowerShell 7 session as child process
+    - Optimizes performance when already running PowerShell 7
+
     CREDENTIAL SECURITY:
     - Stored credentials are encrypted using PowerShell's Export-Clixml
     - Credentials are tied to the current user account and machine
@@ -2232,25 +2238,41 @@ function New-CredentialFile {
 
 function Start-MainScript {
     param()
-    
+
     try {
         Write-Log "Preparing to execute main script..." -Level Info
-        
-        # Validate critical paths first
-        if ([string]::IsNullOrEmpty($script:Config.DefaultPaths.PowerShell7Path)) {
-            throw "PowerShell7Path is not configured in the configuration file"
+
+        # Check current PowerShell version
+        $currentPSVersion = $PSVersionTable.PSVersion.Major
+        Write-Log "Current PowerShell version: $($PSVersionTable.PSVersion)" -Level Info
+
+        # Determine if we need to launch PowerShell 7 or execute directly
+        $needsPS7Launch = $currentPSVersion -lt 7
+
+        if ($needsPS7Launch) {
+            Write-Log "Running on PowerShell $currentPSVersion - will launch PowerShell 7 session" -Level Info
+        } else {
+            Write-Log "Already running on PowerShell $currentPSVersion - will execute directly (no new session needed)" -Level Info
         }
-        
+
+        # Validate critical paths
         if ([string]::IsNullOrEmpty($script:Config.DefaultPaths.MainScriptPath)) {
             throw "MainScriptPath is not configured in the configuration file"
         }
-        
-        if (-not (Test-Path $script:Config.DefaultPaths.PowerShell7Path)) {
-            throw "PowerShell 7 executable not found: $($script:Config.DefaultPaths.PowerShell7Path)"
-        }
-        
+
         if (-not (Test-Path $script:Config.DefaultPaths.MainScriptPath)) {
             throw "Main script not found: $($script:Config.DefaultPaths.MainScriptPath)"
+        }
+
+        # Only validate PowerShell 7 path if we need to launch it
+        if ($needsPS7Launch) {
+            if ([string]::IsNullOrEmpty($script:Config.DefaultPaths.PowerShell7Path)) {
+                throw "PowerShell7Path is not configured in the configuration file"
+            }
+
+            if (-not (Test-Path $script:Config.DefaultPaths.PowerShell7Path)) {
+                throw "PowerShell 7 executable not found: $($script:Config.DefaultPaths.PowerShell7Path)"
+            }
         }
         
         # Build execution parameters manually instead of using Get-VMTagsExecutionParameters
@@ -2427,16 +2449,97 @@ function Start-MainScript {
 
         # Combine all arguments
         $ps7Arguments = $powershellArgs + $scriptArgs
-        
+
+        # Branch execution based on current PowerShell version
+        if (-not $needsPS7Launch) {
+            # ===== DIRECT EXECUTION PATH (PowerShell 7+) =====
+            Write-Log "Executing main script directly in current PowerShell session..." -Level Info
+
+            if ($DryRun) {
+                Write-Log "DRY RUN MODE: Would execute script directly with parameters:" -Level Info
+                Write-Log "Script: $($script:Config.DefaultPaths.MainScriptPath)" -Level Info
+                Write-Log "Parameters: $($scriptArgs -join ' ')" -Level Info
+                return @{ ExitCode = 0; ExecutionTime = "00:00:00" }
+            }
+
+            # Build hashtable for splatting
+            $scriptParams = @{
+                vCenterServer = $vCenterServer
+                CredentialPath = $script:CredentialPath
+                AppPermissionsCsvPath = $appCsvPath
+                OsMappingCsvPath = $osCsvPath
+                Environment = $currentEnvironment
+            }
+
+            # Add log directory if configured
+            if ($script:Config -and $script:Config.DataPaths.LogDirectory) {
+                $scriptParams.LogDirectory = $script:Config.DataPaths.LogDirectory
+            }
+
+            # Add debug logging if enabled
+            if ($script:Config.EnvironmentSettings -and $script:Config.EnvironmentSettings.EnableDebugLogging) {
+                $scriptParams.EnableScriptDebug = $true
+            }
+
+            # Add hierarchical inheritance if enabled
+            if ($hierarchicalEnabled) {
+                $scriptParams.EnableHierarchicalInheritance = $true
+                if ($script:Config.HierarchicalInheritance.InheritableCategories -and $script:Config.HierarchicalInheritance.InheritableCategories.Count -gt 0) {
+                    $scriptParams.InheritanceCategories = ($script:Config.HierarchicalInheritance.InheritableCategories -join ',')
+                }
+                if ($script:Config.HierarchicalInheritance.DryRun) {
+                    $scriptParams.InheritanceDryRun = $true
+                }
+            }
+
+            # Add optional parameters
+            if ($ForceReprocess) {
+                $scriptParams.ForceReprocess = $true
+            }
+            if ($EnableInventoryVisibility) {
+                $scriptParams.EnableInventoryVisibility = $true
+            }
+            if ($EnableContainerPermissions) {
+                $scriptParams.EnableContainerPermissions = $true
+            }
+
+            $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+
+            try {
+                Write-Log "Calling main script with direct execution..." -Level Info
+                & $script:Config.DefaultPaths.MainScriptPath @scriptParams
+                $exitCode = $LASTEXITCODE
+                if ($null -eq $exitCode) { $exitCode = 0 }
+            }
+            catch {
+                Write-Log "Script execution error: $_" -Level Error
+                $exitCode = 1
+            }
+            finally {
+                $stopwatch.Stop()
+            }
+
+            Write-Log "Direct execution completed with exit code: $exitCode" -Level Info
+            Write-Log "Execution time: $($stopwatch.Elapsed.ToString())" -Level Info
+
+            return @{
+                ExitCode = $exitCode
+                ExecutionTime = $stopwatch.Elapsed.ToString()
+            }
+        }
+
+        # ===== POWERSHELL 7 LAUNCH PATH (PowerShell 5.x) =====
+        Write-Log "Launching PowerShell 7 process for execution..." -Level Info
+
         $commandLine = "$($script:Config.DefaultPaths.PowerShell7Path) $($ps7Arguments -join ' ')"
         Write-Log "Execution command: $($commandLine)" -Level Debug
-        
+
         if ($DryRun) {
             Write-Log "DRY RUN MODE: Would execute the following command:" -Level Info
             Write-Log $commandLine -Level Info
             return @{ ExitCode = 0; ExecutionTime = "00:00:00" }
         }
-        
+
         # Determine working directory with comprehensive fallbacks
         $workingDir = $null
         $potentialDirs = @()
