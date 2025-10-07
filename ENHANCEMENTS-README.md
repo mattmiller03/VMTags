@@ -38,7 +38,7 @@ This function grants non-propagating **Read-Only** permissions on all inventory 
 
 **Usage**:
 ```powershell
-# Enable inventory visibility
+# Enable inventory visibility (via Launcher - Recommended)
 .\VM_TagPermissions_Launcher.ps1 -Environment PROD -UseStoredCredentials -EnableInventoryVisibility
 
 # Direct script execution
@@ -91,7 +91,7 @@ Enhanced to assign permissions on folders and resource pools before processing c
 
 **Usage**:
 ```powershell
-# Container permissions are ENABLED by default
+# Container permissions are ENABLED by default (via Launcher - Recommended)
 .\VM_TagPermissions_Launcher.ps1 -Environment PROD -UseStoredCredentials
 
 # Explicitly enable
@@ -137,7 +137,10 @@ Folder 'Production/WebServers': Applied permission to VM 'web01' for tag 'WebTea
 
 ### VM_TagPermissions_Launcher.ps1
 
-You'll need to update the launcher script to pass these parameters through to the main script.
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `-EnableInventoryVisibility` | Switch | `$false` | Grant Read-Only permissions on all inventory containers to security groups |
+| `-EnableContainerPermissions` | Switch | `$true` | Assign permissions on tagged folders/resource pools (not just VMs) |
 
 ## Permissions Architecture
 

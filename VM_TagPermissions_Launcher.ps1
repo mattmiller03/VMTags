@@ -68,8 +68,20 @@
     Bypasses the daily deduplication tracking that prevents VMs from being processed multiple times.
     Useful for testing, debugging, or when you need to force updates to specific VMs.
 
+.PARAMETER EnableInventoryVisibility
+    Enable inventory visibility by granting Read-Only permissions on all inventory containers
+    (datacenters, clusters, folders, resource pools) to security groups. This allows users to
+    navigate the vCenter inventory structure while only having actual permissions on their VMs.
+    Useful for environments where OS admins need to see the organizational structure.
+
+.PARAMETER EnableContainerPermissions
+    Assign permissions on tagged folders and resource pools (not just child VMs).
+    When enabled, permissions are assigned on the container itself in addition to child VMs.
+    This is enabled by default as it's the expected behavior. Use -EnableContainerPermissions:$false
+    to disable and only assign permissions on VMs.
+
 .EXAMPLE
-    .\VM_TagPermissions_Launcher_v2.ps1 -Environment "PROD"
+    .\VM_TagPermissions_Launcher.ps1 -Environment "PROD"
     
     Execute the VM tags and permissions script against the PROD environment using default settings.
     Will prompt for credentials if none are stored.
@@ -123,11 +135,30 @@
     All user prompts and waits will be bypassed. Ideal for Aria Operations or CI/CD execution.
 
 .EXAMPLE
-    .\VM_TagPermissions_Launcher_v2.ps1 -Environment "DEV" -ForceReprocess -ForceDebug
+    .\VM_TagPermissions_Launcher.ps1 -Environment "DEV" -ForceReprocess -ForceDebug
 
     Execute against DEV environment with force reprocessing enabled and debug logging.
     All VMs will be processed regardless of whether they were already processed today.
     Useful for testing tag changes or troubleshooting permission application issues.
+
+.EXAMPLE
+    .\VM_TagPermissions_Launcher.ps1 -Environment "PROD" -UseStoredCredentials -EnableInventoryVisibility
+
+    Execute against PROD environment with inventory visibility enabled.
+    Grants Read-Only permissions on all inventory containers to allow users to navigate
+    the vCenter structure while only having actual permissions on their assigned VMs.
+
+.EXAMPLE
+    .\VM_TagPermissions_Launcher.ps1 -Environment "PROD" -UseStoredCredentials -EnableInventoryVisibility -EnableContainerPermissions
+
+    Execute against PROD environment with both inventory visibility and container permissions enabled (recommended).
+    This provides full navigation capability and ensures permissions are visible on tagged containers.
+
+.EXAMPLE
+    .\VM_TagPermissions_Launcher.ps1 -Environment "DEV" -UseStoredCredentials -EnableContainerPermissions:$false
+
+    Execute against DEV environment with container permissions explicitly disabled.
+    Only assigns permissions on VMs, not on their parent folders/resource pools.
 
 .NOTES
     Name: VM_TagPermissions_Launcher_v2.ps1
@@ -224,7 +255,13 @@ param(
     [switch]$AutomationMode,
 
     [Parameter(Mandatory = $false, HelpMessage = "Force reprocessing of VMs even if they were already processed today")]
-    [switch]$ForceReprocess
+    [switch]$ForceReprocess,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Enable inventory visibility by granting Read-Only permissions on all inventory containers")]
+    [switch]$EnableInventoryVisibility,
+
+    [Parameter(Mandatory = $false, HelpMessage = "Assign permissions on tagged folders and resource pools (not just VMs) - enabled by default")]
+    [switch]$EnableContainerPermissions = $true
 )
 
 #region Initialization
@@ -2370,6 +2407,22 @@ function Start-MainScript {
         if ($ForceReprocess) {
             $scriptArgs += '-ForceReprocess'
             Write-Log "Force reprocess mode enabled - VMs will be processed regardless of previous processing status" -Level Info
+        }
+
+        # Add EnableInventoryVisibility parameter if specified
+        if ($EnableInventoryVisibility) {
+            $scriptArgs += '-EnableInventoryVisibility'
+            Write-Log "Inventory visibility enabled - Will grant Read-Only permissions on inventory containers" -Level Info
+        }
+
+        # Add EnableContainerPermissions parameter - pass through the value
+        if ($EnableContainerPermissions) {
+            $scriptArgs += '-EnableContainerPermissions'
+            Write-Log "Container permissions enabled - Will assign permissions on tagged folders/resource pools" -Level Info
+        } else {
+            # Explicitly disable if the switch is false
+            $scriptArgs += '-EnableContainerPermissions:$false'
+            Write-Log "Container permissions disabled" -Level Info
         }
 
         # Combine all arguments
