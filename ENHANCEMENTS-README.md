@@ -30,7 +30,8 @@ Two major enhancements have been added to address user visibility issues and tag
 This function grants non-propagating **Read-Only** permissions on all inventory containers (Datacenters, Clusters, Folders, Resource Pools) to **OS admin security groups only**.
 
 **Key Characteristics**:
-- Grants Read-Only role (built-in vCenter role) **at vCenter root level**
+- Grants Read-Only role (built-in vCenter role) **at vCenter root folder level**
+- Uses the vCenter root folder (typically "Datacenters" folder or ServiceInstance root)
 - Permission **propagates** to all child objects (`Propagate:$true`)
 - **Single operation per OS admin group** - extremely efficient
 - Users can navigate the entire inventory tree

@@ -1771,11 +1771,14 @@ function Find-VMsWithoutExplicitPermissions {
 function Grant-InventoryVisibility {
     <#
     .SYNOPSIS
-        Grants Read-Only permissions at vCenter root to allow OS admins to navigate entire inventory
+        Grants Read-Only permissions at vCenter root folder to allow OS admins to navigate entire inventory
     .DESCRIPTION
-        This function grants Read-Only permissions at the vCenter Server root level with propagation
+        This function grants Read-Only permissions at the vCenter root folder level with propagation
         enabled. This automatically provides read access to all inventory objects (datacenters, clusters,
         folders, resource pools, VMs) throughout the entire vCenter hierarchy.
+
+        The function retrieves the vCenter root folder (typically "Datacenters" or the ServiceInstance
+        root folder) and grants permissions on that object, which then propagate down to all children.
 
         This is the most efficient approach - a single permission grant per security group instead of
         hundreds/thousands of individual grants on every container object.
@@ -1801,16 +1804,56 @@ function Grant-InventoryVisibility {
     }
 
     try {
-        # Get the vCenter root object (the connected vCenter Server)
-        $vCenterRoot = $global:DefaultVIServer
-
-        if (-not $vCenterRoot) {
+        # Verify vCenter connection
+        if (-not $global:DefaultVIServer) {
             Write-Log "No vCenter connection found. Cannot grant inventory visibility." "ERROR"
             $results.Errors++
             return $results
         }
 
-        Write-Log "vCenter Server: $($vCenterRoot.Name)" "INFO"
+        Write-Log "vCenter Server: $($global:DefaultVIServer.Name)" "INFO"
+
+        # Get the root folder of the vCenter inventory
+        # This is the correct entity for granting root-level permissions
+        Write-Log "Retrieving vCenter root folder for permission assignment..." "DEBUG"
+
+        # Method 1: Try to get root folder via ServiceInstance
+        try {
+            $si = Get-View ServiceInstance -Server $global:DefaultVIServer
+            $rootFolder = Get-View -Id $si.Content.RootFolder -Server $global:DefaultVIServer
+            $vCenterRoot = Get-Folder -Id $rootFolder.MoRef -Server $global:DefaultVIServer
+            Write-Log "Retrieved root folder via ServiceInstance: $($vCenterRoot.Name)" "DEBUG"
+        }
+        catch {
+            Write-Log "Could not get root folder via ServiceInstance: $_" "DEBUG"
+
+            # Method 2: Fallback - get the Datacenters folder (parent of all datacenters)
+            try {
+                $vCenterRoot = Get-Folder -Name "Datacenters" -NoRecursion -Server $global:DefaultVIServer -ErrorAction Stop
+                Write-Log "Using Datacenters folder as root: $($vCenterRoot.Name)" "DEBUG"
+            }
+            catch {
+                Write-Log "Could not get Datacenters folder: $_" "ERROR"
+                Write-Log "Attempting to get any root-level folder..." "DEBUG"
+
+                # Method 3: Last resort - get the first folder with no parent
+                $allFolders = Get-Folder -Server $global:DefaultVIServer
+                $vCenterRoot = $allFolders | Where-Object { $_.ParentId -eq $null -or $_.Parent -eq $null } | Select-Object -First 1
+
+                if (-not $vCenterRoot) {
+                    throw "Could not determine vCenter root folder for permission assignment"
+                }
+                Write-Log "Using root folder: $($vCenterRoot.Name)" "DEBUG"
+            }
+        }
+
+        if (-not $vCenterRoot) {
+            Write-Log "Failed to retrieve vCenter root folder. Cannot grant inventory visibility." "ERROR"
+            $results.Errors++
+            return $results
+        }
+
+        Write-Log "Root folder for permissions: $($vCenterRoot.Name) (Type: $($vCenterRoot.GetType().Name))" "INFO"
 
         # Get Read-Only role (this is a built-in vCenter role)
         $readOnlyRole = Get-VIRole -Name "ReadOnly" -ErrorAction Stop
