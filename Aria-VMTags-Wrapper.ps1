@@ -1,6 +1,36 @@
 <#
 .SYNOPSIS
     Aria Operations wrapper for VM Tags and Permissions automation
+
+.DESCRIPTION
+    This wrapper script provides Aria Operations integration for the VM Tags and Permissions
+    automation system. It handles structured logging, result formatting, and automation mode
+    execution suitable for enterprise monitoring platforms.
+
+.PARAMETER Environment
+    Target environment (DEV, PROD, KLEB, OT)
+
+.PARAMETER vCenterServer
+    Optional vCenter server override
+
+.PARAMETER EnableDebug
+    Enable debug logging
+
+.PARAMETER EnableInventoryVisibility
+    Grant Read-Only permissions at vCenter root level to OS admin groups for inventory navigation
+
+.PARAMETER EnableContainerPermissions
+    Assign permissions on tagged folders and resource pools (not just child VMs).
+    Enabled by default.
+
+.PARAMETER ForceReprocess
+    Force reprocessing of VMs even if they were already processed today
+
+.EXAMPLE
+    .\Aria-VMTags-Wrapper.ps1 -Environment PROD -EnableInventoryVisibility
+
+.EXAMPLE
+    .\Aria-VMTags-Wrapper.ps1 -Environment DEV -EnableDebug -ForceReprocess
 #>
 
 [CmdletBinding()]
@@ -8,12 +38,21 @@ param(
     [Parameter(Mandatory = $true)]
     [ValidateSet('DEV', 'PROD', 'KLEB', 'OT')]
     [string]$Environment,
-    
+
     [Parameter(Mandatory = $false)]
     [string]$vCenterServer,
-    
+
     [Parameter(Mandatory = $false)]
-    [switch]$EnableDebug
+    [switch]$EnableDebug,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$EnableInventoryVisibility,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$EnableContainerPermissions = $true,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ForceReprocess
 )
 
 #region Aria Operations Functions
@@ -136,9 +175,21 @@ try {
     Write-AriaLog "Aria Operations VM Tags automation started" -Level "INFO"
     Write-AriaLog "PowerShell Version: $($PSVersionTable.PSVersion)" -Level "INFO"
     Write-AriaLog "Target Environment: $Environment" -Level "INFO"
-    
+
     if ($vCenterServer) {
         Write-AriaLog "vCenter Override: $vCenterServer" -Level "INFO"
+    }
+
+    if ($EnableInventoryVisibility) {
+        Write-AriaLog "Inventory Visibility: ENABLED (OS admins will receive Read-Only at root)" -Level "INFO"
+    }
+
+    if ($EnableContainerPermissions) {
+        Write-AriaLog "Container Permissions: ENABLED (permissions on folders/resource pools)" -Level "INFO"
+    }
+
+    if ($ForceReprocess) {
+        Write-AriaLog "Force Reprocess: ENABLED (bypassing daily deduplication)" -Level "INFO"
     }
     
     # Ensure required directories exist
@@ -169,6 +220,18 @@ try {
 
     if ($EnableDebug) {
         $launcherArgs.ForceDebug = $true
+    }
+
+    if ($EnableInventoryVisibility) {
+        $launcherArgs.EnableInventoryVisibility = $true
+    }
+
+    if ($EnableContainerPermissions) {
+        $launcherArgs.EnableContainerPermissions = $true
+    }
+
+    if ($ForceReprocess) {
+        $launcherArgs.ForceReprocess = $true
     }
 
     # Log the command being executed
