@@ -262,26 +262,34 @@ try {
 
     # Execute the launcher script with proper splatting
     $result = & $script:AriaConfig.LauncherScript @launcherArgs
-    
+
+    # Determine exit code from result
+    $exitCode = 0  # Default to success
+
     # Process results
     if ($result -and $result.ExitCode -ne $null) {
+        $exitCode = $result.ExitCode
         Write-AriaResult -Result $result
-        
+
         if ($result.ExitCode -eq 0) {
             Write-AriaLog "VM Tags automation completed successfully" -Level "SUCCESS"
         } else {
             Write-AriaLog "VM Tags automation completed with errors (Exit Code: $($result.ExitCode))" -Level "WARNING"
         }
     } else {
+        # No result object returned - assume success if no exception was thrown
         Write-AriaLog "VM Tags automation completed (no result object returned)" -Level "INFO"
+        $exitCode = 0
     }
-    
-    return $result
+
+    # Exit with proper code for Aria Operations monitoring
+    Write-AriaLog "Exiting with code: $exitCode" -Level "INFO"
+    exit $exitCode
 }
 catch {
     Write-AriaLog "FATAL ERROR: $($_.Exception.Message)" -Level "ERROR"
     Write-AriaLog "Stack Trace: $($_.ScriptStackTrace)" -Level "ERROR"
-    
+
     # Write error result for Aria
     $errorResult = @{
         ExitCode = 1
@@ -289,7 +297,8 @@ catch {
         ErrorMessage = $_.Exception.Message
     }
     Write-AriaResult -Result $errorResult
-    
-    throw
+
+    # Exit with error code for Aria Operations monitoring
+    exit 1
 }
 #endregion
